@@ -1,0 +1,8 @@
+- insert:
+    - id: service-manager
+      name: 'dsh-service-manager'
+    - id: service-manager-mcp
+      name: cordis:include
+      config:
+        path: ./mcp-servers.yml
+        initial: []
