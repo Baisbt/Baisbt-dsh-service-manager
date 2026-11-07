@@ -35,7 +35,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.8.0", commit: "57f8998", built: "2026-11-07T14:30:17.014Z" };
+const BUILD = { version: "0.8.0", commit: "91564df", built: "2026-11-07T14:45:41.124Z" };
 
 function readSelfVersion() {
   try {

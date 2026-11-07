@@ -362,6 +362,13 @@ const cases = [
     expectClass: "smBannerWarn",
   },
   {
+    label: "版本横幅：Host 太旧（版本接口 404）→ 提示重启",
+    tab: "mcp",
+    version: { ok: false, missing: true },
+    expectTexts: ["缺少版本接口", "重启一次 DSH"],
+    expectClass: "smBannerWarn",
+  },
+  {
     label: "版本横幅：读不到磁盘版本 → 只说读不到",
     tab: "mcp",
     version: { ok: true, stale: false, unknown: true, running: { version: "0.8.0" }, disk: null, build: {} },

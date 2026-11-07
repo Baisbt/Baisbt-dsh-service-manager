@@ -144,6 +144,8 @@
       return json({ ok: true, rows: stats, since: "2026-11-06" });
     }
     if (path === "/api/service-manager/version" && method === "GET") {
+      /* missing 场景：模拟「正在跑的 Host 还没有这条路由」，返回 404 */
+      if (scenario === "missing") return new Response("not found", { status: 404 });
       /* page 场景：build.commit 与 client.js 里的构建戳不同，触发「页面是旧构建」 */
       return json(version);
     }

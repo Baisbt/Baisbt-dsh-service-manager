@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.8.0", commit: "57f8998", built: "2026-11-07T14:30:17.014Z" };
+    const BUILD = { version: "0.8.0", commit: "91564df", built: "2026-11-07T14:45:41.124Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -104,6 +104,8 @@ window.__ModuleLoader__.load({
         retry: "重试",
         verStaleTitle: "插件已更新，重启 DSH 后生效",
         verStaleBody: "当前页面来自磁盘上的新版本，但 Host 进程还在跑旧版本。重启一次 DSH 即可。",
+        verMissingTitle: "Host 比页面旧，缺少版本接口",
+        verMissingBody: "磁盘上的页面已带版本接口，正在跑的 Host 还没有（早于 0.8.0）。重启一次 DSH 即可。",
         verPageTitle: "页面里是旧版界面",
         verPageBody: "刷新页面即可载入新版本；刷新后仍提示说明构建戳没更新。",
         verUnknown: "读不到磁盘上的 package.json，无法判断是否需要重启。",
@@ -256,6 +258,8 @@ window.__ModuleLoader__.load({
         retry: "Retry",
         verStaleTitle: "Plugin updated — restart DSH to apply",
         verStaleBody: "This page comes from the newer copy on disk, but the Host process still runs the old one. Restart DSH once.",
+        verMissingTitle: "Host is older than this page",
+        verMissingBody: "The page on disk already ships the version endpoint; the running Host predates 0.8.0. Restart DSH once.",
         verPageTitle: "This page renders an older build",
         verPageBody: "Reload the page to pick up the new version; if the notice survives a reload, the build stamp was not updated.",
         verUnknown: "Could not read package.json on disk, so the restart check is unavailable.",
@@ -2846,10 +2850,12 @@ window.__ModuleLoader__.load({
       const diskVersion = version?.disk?.version ?? null;
       const runningVersion = version?.running?.version ?? null;
       const hostCommit = version?.build?.commit ?? "";
-      const hostStale = version?.stale === true;
-      const pageStale = !hostStale && Boolean(hostCommit && BUILD.commit && hostCommit !== BUILD.commit);
+      const hostMissing = version?.missing === true;
+      const hostStale = !hostMissing && version?.stale === true;
+      const pageStale = !hostStale && !hostMissing && Boolean(hostCommit && BUILD.commit && hostCommit !== BUILD.commit);
       const versionUnknown = version?.unknown === true;
-      const showVersion = !verHidden && Boolean(version) && (hostStale || pageStale || versionUnknown);
+      const showVersion =
+        !verHidden && Boolean(version) && (hostStale || hostMissing || pageStale || versionUnknown);
 
       useEffect(() => {
         if (!menuOpen) return;
@@ -2883,15 +2889,23 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "smBannerText" },
-              hostStale
-                ? h("span", { className: "smBannerTitle" }, t("verStaleTitle"))
-                : pageStale
-                  ? h("span", { className: "smBannerTitle" }, t("verPageTitle"))
-                  : null,
+              hostMissing
+                ? h("span", { className: "smBannerTitle" }, t("verMissingTitle"))
+                : hostStale
+                  ? h("span", { className: "smBannerTitle" }, t("verStaleTitle"))
+                  : pageStale
+                    ? h("span", { className: "smBannerTitle" }, t("verPageTitle"))
+                    : null,
               h(
                 "span",
                 { className: "smBannerBody" },
-                hostStale ? t("verStaleBody") : pageStale ? t("verPageBody") : t("verUnknown")
+                hostMissing
+                  ? t("verMissingBody")
+                  : hostStale
+                    ? t("verStaleBody")
+                    : pageStale
+                      ? t("verPageBody")
+                      : t("verUnknown")
               ),
               hostStale
                 ? h(
@@ -3071,15 +3085,16 @@ window.__ModuleLoader__.load({
         };
 
         /**
-         * 读一次版本自述。旧版 Host 没有这条路由，404 是正常情况：
-         * 失败就把结果清成 null，横幅自己消失，不打扰任何人。
+         * 读一次版本自述。
+         *  404 = 正在跑的 Host 还没有这条路由，也就是它比页面旧。这是最需要说出来的一种情况：
+         *        用户刚更新完、还没重启，页面却一言不发，正是历史上最难判断的那一刻。
          */
         const loadVersion = async () => {
           try {
             const payload = await request("/api/service-manager/version");
             set({ version: payload });
-          } catch {
-            set({ version: null });
+          } catch (error) {
+            set({ version: /\b404\b/.test(String(error?.message ?? "")) ? { ok: false, missing: true } : null });
           }
         };
 
