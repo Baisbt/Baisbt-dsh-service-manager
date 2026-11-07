@@ -53,7 +53,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 
 ### Invocation stats
 
-Per-tool and per-skill call counts, accumulated from the day you install. Answers "is this server earning its context?" without digging through session logs.
+Per-server and per-skill call counts, accumulated from the day you install. Answers "is this server earning its context?" without digging through session logs.
 
 ### Agent tool
 
@@ -151,7 +151,7 @@ Then **refresh the page** (`Ctrl+R`). A **服务管理** entry appears in the si
 
 **Skills** — summaries are English by default. Choose a model, hit **重新翻译全部**, and the cards fill in. The toggle switches the whole list between translation and original; ↻ on a card re-translates just that one.
 
-**Stats** — read-only counters, one row per tool and per skill.
+**Stats** — read-only counters, one row per server and per skill.
 
 **Opening the config directory** — the page has an entry that opens the profile folder in your file manager (`explorer.exe` / `open` / `xdg-open`). It opens the folder; the plugin does not edit files you own.
 
@@ -241,8 +241,8 @@ No. Uninstalling removes the dependency entry, the bundle entry and the `node_mo
 No build step: `index.js` and `client.js` are plain ESM that runs directly.
 
 ```bash
-# Offline render smoke test — renders all three views and both drawers
-# against a minimal React stand-in
+# Offline render smoke test — renders all three views and both drawers,
+# in Chinese and English, against a minimal React stand-in
 node test/render-smoke.mjs
 ```
 

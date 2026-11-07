@@ -567,7 +567,7 @@ function parseNumbered(raw, offset, expected) {
 }
 
 /** 退路二：JSON 数组（模型偶尔还是会给）。 */
-function parseJsonArray(raw, offset, expected) {
+function parseJsonArray(raw, _offset, expected) {
   const start = raw.indexOf("[");
   const end = raw.lastIndexOf("]");
   if (start < 0 || end <= start) return null;
@@ -586,7 +586,6 @@ function parseJsonArray(raw, offset, expected) {
     out[index] = item.trim();
     filled += 1;
   });
-  void offset;
   return filled ? out : null;
 }
 
@@ -961,7 +960,8 @@ export function apply(ctx, config) {
     }, 0);
   }
 
-  /* 计数：只观察，不影响执行 */
+  /* 计数：只观察，不影响执行。口径是 MCP 按服务器聚合（mcp:<serverName>）、技能按技能名聚合（skill:<name>），
+     不按工具拆分——README 与 PRODUCT.md 的措辞以此为准。 */
   ctx.on("tools/result", (exec) => {
     try {
       const toolName = exec?.name;

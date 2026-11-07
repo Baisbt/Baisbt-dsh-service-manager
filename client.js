@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     const PRESETS = [
       {
         id: "tavily",
-        label: "Tavily 搜索",
+        labelKey: "presetTavily",
         values: {
           serverName: "tavily",
           transport: "streamable-http",
@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
       },
       {
         id: "github",
-        label: "GitHub",
+        labelKey: "presetGithub",
         values: {
           serverName: "github",
           transport: "stdio",
@@ -44,7 +44,7 @@ window.__ModuleLoader__.load({
       },
       {
         id: "filesystem",
-        label: "本地文件系统",
+        labelKey: "presetFilesystem",
         values: {
           serverName: "files",
           transport: "stdio",
@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
       },
       {
         id: "fetch",
-        label: "网页抓取（uvx）",
+        labelKey: "presetFetch",
         values: {
           serverName: "fetch",
           transport: "stdio",
@@ -75,6 +75,7 @@ window.__ModuleLoader__.load({
         nav: "服务管理",
         back: "返回会话",
         title: "服务管理",
+        sub: "MCP 服务器与技能的统一入口。改动会直接写进配置，下次对话即可使用。",
         refresh: "刷新",
         tabs: { mcp: "MCP 服务器", skill: "技能", stats: "调用统计" },
         search: "搜索服务器…",
@@ -97,8 +98,11 @@ window.__ModuleLoader__.load({
         retry: "重试",
         edit: "编辑",
         remove: "删除",
+        enable: "启用",
+        disable: "停用",
         removeConfirm: "删除后这台服务器会从配置里移除，模型将无法再调用它的工具。",
         cancel: "取消",
+        close: "关闭",
         confirmRemove: "确认删除",
         save: "保存",
         saving: "保存中…",
@@ -118,8 +122,15 @@ window.__ModuleLoader__.load({
         fieldHeaders: "请求头",
         fieldHeadersHint: "值里写 ${NAME} 表示从环境变量读取，例如 Authorization: Bearer ${TAVILY_API_KEY}。",
         addPair: "添加一项",
+        removePair: "移除",
+        keyLabel: "键",
+        valueLabel: "值",
         presetLabel: "从模板开始",
         presetNone: "不使用模板",
+        presetTavily: "Tavily 搜索",
+        presetGithub: "GitHub",
+        presetFilesystem: "本地文件系统",
+        presetFetch: "网页抓取（uvx）",
         envRefHint: "提示：任何字段里写 ${VAR} 都会在加载时从环境变量取，配置文件里不留明文。改完需要重启 DSH。",
         more: "更多",
         fieldNote: "备注",
@@ -173,6 +184,7 @@ window.__ModuleLoader__.load({
         nav: "Services",
         back: "Back to chat",
         title: "Services",
+        sub: "One place for MCP servers and skills. Changes go straight into the config and are available in the next turn.",
         refresh: "Refresh",
         tabs: { mcp: "MCP servers", skill: "Skills", stats: "Usage" },
         search: "Search servers…",
@@ -195,8 +207,11 @@ window.__ModuleLoader__.load({
         retry: "Retry",
         edit: "Edit",
         remove: "Remove",
+        enable: "Enable",
+        disable: "Disable",
         removeConfirm: "Removing this server deletes it from the config; its tools disappear from the model.",
         cancel: "Cancel",
+        close: "Close",
         confirmRemove: "Remove",
         save: "Save",
         saving: "Saving…",
@@ -216,8 +231,15 @@ window.__ModuleLoader__.load({
         fieldHeaders: "Headers",
         fieldHeadersHint: "A value like ${NAME} is read from the environment, e.g. Authorization: Bearer ${TAVILY_API_KEY}.",
         addPair: "Add",
+        removePair: "Remove",
+        keyLabel: "Key",
+        valueLabel: "Value",
         presetLabel: "Start from a preset",
         presetNone: "No preset",
+        presetTavily: "Tavily search",
+        presetGithub: "GitHub",
+        presetFilesystem: "Local filesystem",
+        presetFetch: "Web fetch (uvx)",
         envRefHint: "Tip: writing ${VAR} anywhere makes DSH read it from the environment at load time, so no secret lands in the config file. Restart DSH after changing this.",
         more: "More",
         fieldNote: "Note",
@@ -784,7 +806,7 @@ window.__ModuleLoader__.load({
     const paramKeyOf = (server, tool, param) => `${server.id}:${tool.name}#${param.name}`;
 
     /** 抽屉外壳：遮罩 + 右侧滑入 + Esc 关闭，技能和工具共用。 */
-    function DrawerShell({ title, subtitle, onClose, children }) {
+    function DrawerShell({ t, title, subtitle, onClose, children }) {
       const [open, setOpen] = useState(false);
       /* 用 ref 存回调：父组件重渲染会换掉 onClose 的函数身份，
          如果进把它放进依赖里，effect 每次都被取消，进场动画就永远播不出来。 */
@@ -821,7 +843,7 @@ window.__ModuleLoader__.load({
               h("h2", { className: "smDrawerTitle" }, title),
               subtitle ? h("div", { className: "smDrawerMeta smMono" }, subtitle) : null
             ),
-            h("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": "关闭" }, h(IconClose, { size: 15 }))
+            h("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": t("close") }, h(IconClose, { size: 15 }))
           ),
           h("div", { className: "smDrawerBody" }, children)
         )
@@ -887,7 +909,7 @@ window.__ModuleLoader__.load({
 
       return h(
         DrawerShell,
-        { title: skill.name, subtitle: skill.path, onClose },
+        { t, title: skill.name, subtitle: skill.path, onClose },
         h(SummarySection, { t, entry, busy, target, onRetranslate }, entry?.zh || skill.description || "—"),
         h(SourceDivider, { label: t("sourceLabel") }),
         loading
@@ -902,7 +924,7 @@ window.__ModuleLoader__.load({
       const params = tool.params ?? [];
       return h(
         DrawerShell,
-        { title: tool.name, subtitle: `${server.serverName} · ${server.endpoint}`, onClose },
+        { t, title: tool.name, subtitle: `${server.serverName} · ${server.endpoint}`, onClose },
         h(SummarySection, { t, entry, busy, target, onRetranslate }, entry?.zh || tool.description || "—"),
         params.length
           ? h(
@@ -1042,7 +1064,7 @@ window.__ModuleLoader__.load({
                 className: "smSwitch",
                 role: "switch",
                 "aria-checked": server.enabled,
-                "aria-label": `${server.enabled ? "停用" : "启用"} ${server.serverName}`,
+                "aria-label": `${server.enabled ? t("disable") : t("enable")} ${server.serverName}`,
                 disabled: busy,
                 onClick: () => onToggle(server),
               },
@@ -1195,7 +1217,7 @@ window.__ModuleLoader__.load({
                       onChange: (event) => applyPreset(event.target.value),
                     },
                     h("option", { value: "" }, t("presetNone")),
-                    PRESETS.map((preset) => h("option", { key: preset.id, value: preset.id }, preset.label))
+                    PRESETS.map((preset) => h("option", { key: preset.id, value: preset.id }, t(preset.labelKey)))
                   )
                 ),
             h(
@@ -1282,7 +1304,7 @@ window.__ModuleLoader__.load({
                       className: "smInput smMono",
                       value: pair.k,
                       placeholder: transport === "stdio" ? "GITHUB_TOKEN" : "Authorization",
-                      "aria-label": "key",
+                      "aria-label": t("keyLabel"),
                       onChange: (event) =>
                         setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, k: event.target.value } : item))),
                     }),
@@ -1290,7 +1312,7 @@ window.__ModuleLoader__.load({
                       className: "smInput smMono",
                       value: pair.v,
                       placeholder: transport === "stdio" ? "ghp_…" : "Bearer …",
-                      "aria-label": "value",
+                      "aria-label": t("valueLabel"),
                       onChange: (event) =>
                         setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, v: event.target.value } : item))),
                     }),
@@ -1299,7 +1321,7 @@ window.__ModuleLoader__.load({
                       {
                         type: "button",
                         className: "smKVRemove",
-                        "aria-label": "移除",
+                        "aria-label": t("removePair"),
                         onClick: () => setPairs((prev) => prev.filter((_, i) => i !== index)),
                       },
                       h(IconClose, { size: 12 })
@@ -2227,7 +2249,11 @@ window.__ModuleLoader__.load({
       const mcp = group("mcp");
       const skill = group("skill");
       const since = state.statsSince
-        ? new Date(state.statsSince).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" })
+        ? new Date(state.statsSince).toLocaleDateString(ACTIVE_LOCALE === "zh" ? "zh-CN" : "en-US", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          })
         : null;
       return h(
         React.Fragment,
@@ -2241,10 +2267,6 @@ window.__ModuleLoader__.load({
         skill.length ? h("section", { className: "smSection" }, h("div", { className: "smSectionHead" }, h("h3", { className: "smSectionTitle" }, t("skillcalls"))), renderBars(skill)) : null
       );
     }
-
-    /* 由 apply 注入的上下文能力（在闭包外赋值） */
-    let ctxRemoteOpen = async () => {};
-    let openFolder = async () => {};
 
     function Page({ t, tab, setTab, state, reload, notify }) {
       const [menuOpen, setMenuOpen] = useState(false);
@@ -2348,7 +2370,7 @@ window.__ModuleLoader__.load({
               "div",
               { className: "smHead" },
               h("h1", { className: "smTitle" }, t("title")),
-              h("p", { className: "smSub" }, "MCP 服务器与技能的统一入口。改动会直接写进配置，下次对话即可使用。")
+              h("p", { className: "smSub" }, t("sub"))
             ),
             h(
               "div",
@@ -2385,14 +2407,18 @@ window.__ModuleLoader__.load({
     }
 
     let ctxLayoutSelect = () => {};
+    /* 当前界面语言：日期这类原生格式化要跟着它走，不能写死 zh-CN。 */
+    let ACTIVE_LOCALE = "zh";
 
     /* ------------------------------------------------------------------ 插件 */
 
     return {
-      inject: ["slots", "locale", "remote", "layout"],
+      inject: ["slots", "locale", "layout"],
       apply(ctx) {
         const locale = ctx.get("locale");
-        const t = pick(locale?.current ?? (typeof navigator !== "undefined" ? navigator.language : "zh"));
+        const current = locale?.current ?? (typeof navigator !== "undefined" ? navigator.language : "zh");
+        ACTIVE_LOCALE = String(current || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+        const t = pick(current);
 
         try {
           locale?.register?.(NS, MESSAGES);
@@ -2408,15 +2434,6 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
         };
-
-        ctxRemoteOpen = async (filePath) => {
-          const remote = ctx.get("remote");
-          const session = remote?.session;
-          if (!session?.openWorkspacePath) throw new Error("当前版本不支持打开本地文件");
-          const result = await session.openWorkspacePath({ path: filePath });
-          if (result && result.opened === false) throw new Error("系统拒绝了打开请求");
-        };
-        openFolder = ctxRemoteOpen;
 
         /* 页面状态提升到 apply 作用域，切走再切回不丢 */
         let store = {

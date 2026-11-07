@@ -81,6 +81,7 @@ const mod = captured.factory((id) => {
 });
 
 let mainComponent = null;
+let activeLocale = "zh-CN";
 const ctx = {
   slots: {
     inject: (name, factory) => factory(),
@@ -89,11 +90,17 @@ const ctx = {
       return noop;
     },
   },
-  get: () => undefined,
+  get: (name) => (name === "locale" ? { current: activeLocale, register: noop, bind: noop } : undefined),
 };
 
-mod.apply(ctx);
-if (!mainComponent) throw new Error("main 插槽没有注册组件");
+/* client.js 在 apply 时就把语言定下来了，所以每种语言都要重新 apply 一次 */
+function boot(locale) {
+  activeLocale = locale;
+  mainComponent = null;
+  mod.apply(ctx);
+  if (!mainComponent) throw new Error("main 插槽没有注册组件");
+}
+boot("zh-CN");
 
 function render(node) {
   if (node === null || node === undefined || node === false || node === true) return null;
@@ -127,6 +134,14 @@ function countClass(tree, className) {
     if (typeof node.className === "string" && node.className.split(/\s+/).includes(className)) count += 1;
   });
   return count;
+}
+
+function hasAriaLabel(tree, label) {
+  let found = false;
+  walk(tree, (node) => {
+    if (node?.props && node.props["aria-label"] === label) found = true;
+  });
+  return found;
 }
 
 const tools = [
@@ -182,10 +197,17 @@ const cases = [
     openTool: { server: servers[0], tool: tools[0] },
   },
   { label: "stats", tab: "stats" },
+  /* 语言：client.js 在 apply 时就把语言定下来，所以中英文各 apply 一次 */
+  { label: "zh 页面副标题", tab: "mcp", locale: "zh-CN", expectText: "MCP 服务器与技能的统一入口" },
+  { label: "en 页面副标题", tab: "mcp", locale: "en-US", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
+  { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh-CN", drawer: skills[0], expectAria: "关闭" },
+  { label: "en 抽屉关闭标签", tab: "skill", locale: "en-US", drawer: skills[0], expectAria: "Close" },
+  { label: "en 统计页", tab: "stats", locale: "en-US", expectText: "No calls recorded yet" },
 ];
 
 let failures = 0;
 for (const item of cases) {
+  boot(item.locale ?? "zh-CN");
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
@@ -201,19 +223,20 @@ for (const item of cases) {
     const parts = [`${flatten(tree).length} 文本节点`, `行内图标按钮=${rowActions}`];
     if (item.tab === "mcp") parts.push(`工具行=${toolRows}`);
 
+    const zh = (item.locale ?? "zh-CN").startsWith("zh");
     const checks = [];
     if (item.tab === "skill" && !item.drawer) {
       if (item.entries) {
         checks.push(["中文译文", text.includes("为社交媒体和广告设计横幅")]);
-        checks.push(["模型译标签", text.includes("模型译")]);
+        checks.push(["模型译标签", text.includes(zh ? "模型译" : "Model")]);
       } else {
         checks.push(["回退原文", text.includes("Design banners for social media")]);
       }
-      checks.push(["原文切换", text.includes("原文")]);
+      checks.push(["原文切换", text.includes(zh ? "原文" : "Original")]);
     }
     if (item.drawer) {
-      checks.push(["抽屉摘要", text.includes("摘要")]);
-      checks.push(["抽屉重翻", text.includes("重新翻译")]);
+      checks.push(["抽屉摘要", text.includes(zh ? "摘要" : "Summary")]);
+      checks.push(["抽屉重翻", text.includes(zh ? "重新翻译" : "Translate again")]);
     }
     if (item.expand) {
       checks.push(["工具名", text.includes("tavily_search")]);
@@ -222,10 +245,13 @@ for (const item of cases) {
     }
     if (item.openTool) {
       checks.push(["参数名", text.includes("query")]);
-      checks.push(["必填标记", text.includes("必填")]);
-      checks.push(["参数区标题", text.includes("参数")]);
+      checks.push(["必填标记", text.includes(zh ? "必填" : "Required")]);
+      checks.push(["参数区标题", text.includes(zh ? "参数" : "Parameters")]);
       checks.push(["参数说明已翻译", text.includes("搜索关键词")]);
     }
+    if (item.expectText) checks.push([`含「${item.expectText}」`, text.includes(item.expectText)]);
+    if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
+    if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);
     const failed = checks.filter(([, ok]) => !ok);
     failures += failed.length;
     console.log(
