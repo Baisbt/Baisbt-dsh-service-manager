@@ -301,6 +301,56 @@ window.__ModuleLoader__.load({
       };
     };
 
+    /* ------------------------------------------------------------ 语言服务 */
+
+    /**
+     * 界面语言必须读宿主 locale 服务的 getLocale().active（返回 `zh` / `en`）。
+     * 不能用 navigator.language：那是 Electron 启动参数 --lang 决定的，
+     * 与用户在设置里选的语言无关，会导致「界面已切英文、插件页仍是中文」。
+     */
+    let localeService = null;
+
+    const readLocale = () => {
+      try {
+        const active = localeService?.getLocale?.()?.active;
+        if (typeof active === "string" && active) return active;
+      } catch {
+        /* 宿主没提供 locale 服务时退回浏览器语言 */
+      }
+      return typeof navigator !== "undefined" && navigator.language ? navigator.language : "zh";
+    };
+
+    const tCache = new Map();
+    const tFor = (value) => {
+      const lang = String(value || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+      let fn = tCache.get(lang);
+      if (!fn) {
+        fn = pick(lang);
+        tCache.set(lang, fn);
+      }
+      return fn;
+    };
+
+    /* 每次调用都按当前语言取，所以任何一次重渲染都会用上新语言 */
+    const t = (key) => tFor(readLocale())(key);
+    const dateLocale = () => (String(readLocale()).toLowerCase().startsWith("zh") ? "zh-CN" : "en-US");
+
+    const subscribeLocale = (onChange) => {
+      try {
+        if (typeof localeService?.subscribe === "function") return localeService.subscribe(onChange);
+      } catch {
+        /* ignore */
+      }
+      return () => {};
+    };
+
+    /* 有 useSyncExternalStore 就订阅语言切换（切语言即时生效），否则退化为每次渲染读一次 */
+    const useLocaleTick = () => {
+      if (typeof React.useSyncExternalStore === "function") {
+        React.useSyncExternalStore(subscribeLocale, readLocale);
+      }
+    };
+
     /* ---------------------------------------------------------------- 图标 */
 
     const svg = (props, children) =>
@@ -2249,7 +2299,7 @@ window.__ModuleLoader__.load({
       const mcp = group("mcp");
       const skill = group("skill");
       const since = state.statsSince
-        ? new Date(state.statsSince).toLocaleDateString(ACTIVE_LOCALE === "zh" ? "zh-CN" : "en-US", {
+        ? new Date(state.statsSince).toLocaleDateString(dateLocale(), {
             year: "numeric",
             month: "2-digit",
             day: "2-digit",
@@ -2407,22 +2457,17 @@ window.__ModuleLoader__.load({
     }
 
     let ctxLayoutSelect = () => {};
-    /* 当前界面语言：日期这类原生格式化要跟着它走，不能写死 zh-CN。 */
-    let ACTIVE_LOCALE = "zh";
 
     /* ------------------------------------------------------------------ 插件 */
 
     return {
       inject: ["slots", "locale", "layout"],
       apply(ctx) {
-        const locale = ctx.get("locale");
-        const current = locale?.current ?? (typeof navigator !== "undefined" ? navigator.language : "zh");
-        ACTIVE_LOCALE = String(current || "").toLowerCase().startsWith("zh") ? "zh" : "en";
-        const t = pick(current);
+        localeService = ctx.get("locale") ?? null;
 
         try {
-          locale?.register?.(NS, MESSAGES);
-          locale?.bind?.(NS);
+          localeService?.register?.(NS, MESSAGES);
+          localeService?.bind?.(NS);
         } catch {
           /* locale 不可用不阻塞页面 */
         }
@@ -2473,6 +2518,8 @@ window.__ModuleLoader__.load({
         };
 
         function Shell() {
+          /* 订阅语言切换：设置里改语言后整页即时重渲染，不需要重启 */
+          useLocaleTick();
           const [tab, setTab] = useState("mcp");
           const [snapshot, setSnapshot] = useState(store);
           useEffect(() => {

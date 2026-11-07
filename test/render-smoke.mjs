@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 离线渲染校验：用最小 React 替身在 Node 里跑一遍 Client，确认三页 + 抽屉都能构建出树。
  * 只做结构校验，不涉及样式与交互。用 node test/render-smoke.mjs 运行。
  */
@@ -81,7 +81,7 @@ const mod = captured.factory((id) => {
 });
 
 let mainComponent = null;
-let activeLocale = "zh-CN";
+let activeLocale = "zh";
 const ctx = {
   slots: {
     inject: (name, factory) => factory(),
@@ -90,8 +90,19 @@ const ctx = {
       return noop;
     },
   },
-  get: (name) => (name === "locale" ? { current: activeLocale, register: noop, bind: noop } : undefined),
+  /* 真实宿主提供 getLocale().active；navigator.language 是 Electron 的 --lang，不能作为语言来源 */
+  get: (name) =>
+    name === "locale"
+      ? { getLocale: () => ({ active: activeLocale }), register: noop, bind: noop, subscribe: () => noop }
+      : undefined,
 };
+
+/* 模拟 Electron 启动参数 --lang=zh-CN：用户把界面切成英文后，navigator 仍是 zh-CN */
+Object.defineProperty(globalThis, "navigator", {
+  value: { language: "zh-CN" },
+  configurable: true,
+  writable: true,
+});
 
 /* client.js 在 apply 时就把语言定下来了，所以每种语言都要重新 apply 一次 */
 function boot(locale) {
@@ -100,7 +111,7 @@ function boot(locale) {
   mod.apply(ctx);
   if (!mainComponent) throw new Error("main 插槽没有注册组件");
 }
-boot("zh-CN");
+boot("zh");
 
 function render(node) {
   if (node === null || node === undefined || node === false || node === true) return null;
@@ -198,16 +209,16 @@ const cases = [
   },
   { label: "stats", tab: "stats" },
   /* 语言：client.js 在 apply 时就把语言定下来，所以中英文各 apply 一次 */
-  { label: "zh 页面副标题", tab: "mcp", locale: "zh-CN", expectText: "MCP 服务器与技能的统一入口" },
-  { label: "en 页面副标题", tab: "mcp", locale: "en-US", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
-  { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh-CN", drawer: skills[0], expectAria: "关闭" },
-  { label: "en 抽屉关闭标签", tab: "skill", locale: "en-US", drawer: skills[0], expectAria: "Close" },
-  { label: "en 统计页", tab: "stats", locale: "en-US", expectText: "No calls recorded yet" },
+  { label: "zh 页面副标题", tab: "mcp", locale: "zh", expectText: "MCP 服务器与技能的统一入口" },
+  { label: "en 页面副标题", tab: "mcp", locale: "en", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
+  { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh", drawer: skills[0], expectAria: "关闭" },
+  { label: "en 抽屉关闭标签", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Close" },
+  { label: "en 统计页", tab: "stats", locale: "en", expectText: "No calls recorded yet" },
 ];
 
 let failures = 0;
 for (const item of cases) {
-  boot(item.locale ?? "zh-CN");
+  boot(item.locale ?? "zh");
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
@@ -223,7 +234,7 @@ for (const item of cases) {
     const parts = [`${flatten(tree).length} 文本节点`, `行内图标按钮=${rowActions}`];
     if (item.tab === "mcp") parts.push(`工具行=${toolRows}`);
 
-    const zh = (item.locale ?? "zh-CN").startsWith("zh");
+    const zh = (item.locale ?? "zh").startsWith("zh");
     const checks = [];
     if (item.tab === "skill" && !item.drawer) {
       if (item.entries) {
