@@ -55,13 +55,28 @@
 
   const skills = F.skills;
 
+  /* 名字长短混着来：短名（slides）和长名（update-cursor-settings）会让
+     「每行一个独立网格」的列宽各自漂移，正好用来量对齐 */
   const stats = [
-    { key: "mcp:tavily", count: 126, lastAt: Date.now() },
-    { key: "skill:impeccable", count: 88, lastAt: Date.now() },
-    { key: "skill:ui-ux-pro-max", count: 54, lastAt: Date.now() },
-    { key: "skill:office-docx", count: 23, lastAt: Date.now() },
-    { key: "skill:slides", count: 9, lastAt: Date.now() },
+    { key: "mcp:tavily", name: "tavily", kind: "mcp", count: 126, fails: 2, lastAt: Date.now() },
+    { key: "mcp:github", name: "github", kind: "mcp", count: 0, fails: 0, lastAt: null },
+    { key: "skill:impeccable", name: "impeccable", kind: "skill", count: 88, fails: 0, lastAt: Date.now() },
+    { key: "skill:ui-ux-pro-max", name: "ui-ux-pro-max", kind: "skill", count: 54, fails: 0, lastAt: Date.now() },
+    { key: "skill:office-docx", name: "office-docx", kind: "skill", count: 23, fails: 0, lastAt: Date.now() },
+    { key: "skill:update-cursor-settings", name: "update-cursor-settings", kind: "skill", count: 9, fails: 0, lastAt: Date.now() },
+    { key: "skill:slides", name: "slides", kind: "skill", count: 3, fails: 0, lastAt: Date.now() },
   ];
+
+  /* 最近 14 天窗口：和 Host 的 /stats 一致，供顶部趋势柱和行内迷你柱使用 */
+  const days = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(Date.now() - (13 - index) * 86400000);
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  });
+  const seriesOf = (count, fails) => ({
+    ok: Array.from({ length: 14 }, (_, index) => (index === 13 ? Math.max(0, count - fails) : 0)),
+    fail: Array.from({ length: 14 }, (_, index) => (index === 13 ? fails : 0)),
+  });
 
   const providers = [
     {
@@ -141,7 +156,12 @@
       return json({ ok: true, skills });
     }
     if (path === "/api/service-manager/stats" && method === "GET") {
-      return json({ ok: true, rows: stats, since: "2026-11-06" });
+      return json({
+        ok: true,
+        since: days[0],
+        days,
+        rows: stats.map((row) => ({ ...row, series: seriesOf(row.count, row.fails ?? 0) })),
+      });
     }
     if (path === "/api/service-manager/version" && method === "GET") {
       /* missing 场景：模拟「正在跑的 Host 还没有这条路由」，返回 404 */

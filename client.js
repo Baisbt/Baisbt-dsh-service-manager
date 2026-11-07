@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.8.0", commit: "4db0ea4", built: "2026-11-07T15:04:06.179Z" };
+    const BUILD = { version: "0.8.1", commit: "562acb6", built: "2026-11-07T15:28:59.125Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -779,7 +779,9 @@ window.__ModuleLoader__.load({
   font:inherit;font-size:12px;line-height:18px;cursor:pointer;transition:color .12s ease,border-color .12s ease}
 .smChip:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4)}
 .smErrList{display:flex;flex-direction:column;gap:10px}
-.smErrRow{display:grid;grid-template-columns:minmax(160px,300px) 1fr 56px;align-items:center;gap:14px;width:100%;
+/* 错误行必须和统计行共用同一套列宽：名字列 180、数值列 52、末列 56（错误行留空）。
+   两套模板各写各的，就会出现「错误条比统计条长一截、起点还偏右」——量过：起点差 120px、终点差 66px。 */
+.smErrRow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px;align-items:center;gap:14px;width:100%;
   padding:4px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
 .smErrRowBtn{cursor:pointer;border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;margin:0 -8px;width:calc(100% + 16px);
   transition:background .12s ease}
@@ -900,6 +902,8 @@ window.__ModuleLoader__.load({
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
   .smBar{grid-template-columns:1fr 56px;grid-template-areas:"name value" "track track";row-gap:6px}
   .smBarName{grid-area:name}.smBarTrack{grid-area:track}.smBarValue{grid-area:value}
+  .smErrRow{grid-template-columns:1fr 52px;grid-template-areas:"name value" "track track";row-gap:6px}
+  .smErrName{grid-area:name}
 }
 `;
 

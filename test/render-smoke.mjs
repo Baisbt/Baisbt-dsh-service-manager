@@ -377,6 +377,21 @@ const cases = [
 ];
 
 let failures = 0;
+
+/* 版式契约：统计行与错误行必须共用同一套列宽。
+   各写各的模板时，错误条会比统计条长一截、起点还偏右（0.8.1 修过一次）。 */
+{
+  const columnsOf = (selector) =>
+    new RegExp(selector + "\\{display:grid;grid-template-columns:([^;]+);").exec(source)?.[1] ?? null;
+  const bar = columnsOf("\\.smBar");
+  const err = columnsOf("\\.smErrRow");
+  const ok = Boolean(bar && err && bar === err);
+  if (!ok) failures += 1;
+  console.log(
+    `${ok ? "✔" : "✘"} 版式契约：.smBar 与 .smErrRow 列宽一致（${bar ?? "未找到"} / ${err ?? "未找到"}）`
+  );
+}
+
 for (const item of cases) {
   boot(item.locale ?? "zh");
   store = { ...store, stats: item.stats ?? [], version: item.version ?? null };
