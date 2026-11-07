@@ -257,6 +257,10 @@ cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
 ```bash
 # 离线渲染冒烟：用最小 React 替身把三个页面、两个抽屉、中英两种语言都渲染一遍
 node test/render-smoke.mjs
+# Host 冒烟：用最小 ctx 替身真跑一遍 apply()，并模拟「启动后磁盘被换成新版」
+node test/host-smoke.mjs
+# 错误分类的纯函数断言
+node test/stats-classify.mjs
 ```
 
 发布前跑一次构建戳，把版本、commit、构建时间写进两半区的 `BUILD` 常量：

@@ -258,6 +258,11 @@ No build step: `index.js` and `client.js` are plain ESM that runs directly.
 # Offline render smoke test — renders all three views and both drawers,
 # in Chinese and English, against a minimal React stand-in
 node test/render-smoke.mjs
+# Host smoke test — runs apply() against a minimal ctx and replays
+# "disk was updated after the process started"
+node test/host-smoke.mjs
+# Pure-function assertions for error classification
+node test/stats-classify.mjs
 ```
 
 Before releasing, stamp the build so both halves describe themselves:

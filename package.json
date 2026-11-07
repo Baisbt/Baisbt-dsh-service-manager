@@ -28,7 +28,7 @@
     "dsh": ">=0.2.0-rc.1 <0.3.0-0"
   },
   "scripts": {
-    "test": "node test/render-smoke.mjs && node test/stats-classify.mjs",
+    "test": "node test/render-smoke.mjs && node test/stats-classify.mjs && node test/host-smoke.mjs",
     "stamp": "node scripts/stamp.mjs",
     "stamp:check": "node scripts/stamp.mjs --check"
   },
