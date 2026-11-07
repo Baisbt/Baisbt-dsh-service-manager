@@ -3,8 +3,12 @@
  * 只做结构校验，不涉及样式与交互。用 node test/render-smoke.mjs 运行。
  */
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const source = await readFile("D:/Soft/AI-source/ALL-test/dsh-service-manager/client.js", "utf8");
+/* 相对于本文件定位 client.js，仓库搬到哪都能跑。 */
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const source = await readFile(path.join(HERE, "..", "client.js"), "utf8");
 
 const FRAGMENT = Symbol("Fragment");
 const noop = () => {};
