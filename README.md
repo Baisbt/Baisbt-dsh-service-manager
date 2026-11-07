@@ -36,6 +36,8 @@ https://github.com/Baisbt/Baisbt-dsh-service-manager
 
 > 也可以用 npm 包名安装，等发布到 npm 之后可用。
 
+> ⚠️ 从别的来源重装同一个包之前（比如先装过本地目录），请先清掉 `node_modules/dsh-service-manager` 残留，否则会报 `ERR_PNPM_EPERM`。原因和修法见下方[常见问题](#常见问题)。
+
 ## 截图
 
 ### MCP 服务器
@@ -109,6 +111,54 @@ cordis.patch.yml (插件自带)
 - DSH `>= 0.2.0-rc.1 < 0.3.0`
 - 明暗主题都走 DSH 的设计 token，自动跟随
 - 桌面端（Windows / macOS / Linux）均可用：「打开配置目录」按平台走 `explorer.exe` / `open` / `xdg-open`
+
+## 卸载
+
+在 **设置 → 插件** 里卸载即可。有两件事值得先知道：
+
+- **不删你的数据**：`<profile>/mcp-servers.yml` 和 `<profile>/.dsh-service-manager/`（服务器列表、翻译缓存、调用统计）都会留在原地。想彻底清干净，手动删掉这两个。
+- **MCP 服务器会跟着消失**：它们由本插件自带的 `cordis:include` 行加载，插件没了这行也就没了。重新装回来即可，配置和数据都还在。
+
+## 常见问题
+
+### 安装报 `ERR_PNPM_EPERM: operation not permitted, rename ...`
+
+换安装来源时最容易遇到——比如先装本地目录、再装 GitHub 版：
+
+```
+[ERR_PNPM_EPERM] [importPackage ...\node_modules\dsh-service-manager]
+EPERM: operation not permitted, rename '...dsh-service-manager_tmp_1234_2' -> '...\dsh-service-manager'
+```
+
+**原因**：DSH 的卸载只改 `package.json`，**不会删除 `node_modules` 里已装好的目录**。pnpm 安装时要先把包解到临时目录，再 rename 成正式目录名，而这个位置上已经存在一个目录——Windows 不允许 rename 覆盖非空目录，于是报 EPERM。
+
+所以这个错**跟插件是否在运行、重启多少次都无关**，重启是没用的。
+
+**修法**：先删掉残留目录，再重新安装。
+
+```cmd
+:: 如果是 Junction（本地 link 安装留下的）——只删链接，源码不受影响
+cmd /c rmdir "<profile>\node_modules\dsh-service-manager"
+
+:: 如果是真实目录——执行前务必确认路径，这条会真的删文件
+cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
+```
+
+Windows 上 `<profile>` 一般是 `%USERPROFILE%\.dsh\profiles\desktop`。
+
+> 判断是哪一种：`dir "<profile>\node_modules" | findstr dsh-service-manager`，带 `<JUNCTION>` 标记的是链接。
+
+### 装完侧边栏没出现
+
+刷新页面（`Ctrl+R`）。Host 半区装完立即生效，前端 bundle 需要重新加载一次。
+
+### GitHub 安装卡很久
+
+日志里出现 `HEAD https://github.com/... ETIMEDOUT` 是网络抖动，pnpm 会自动重试。实测首次安装约 1～2 分钟，慢是正常的。
+
+### 翻译一直停在「翻译中」
+
+单条请求超时 45 秒，整批总预算 75 秒。先确认 **设置 → 模型** 里的默认模型可用，再点卡片右下角的 ↻ 重试；也可以在上方下拉框换一个模型。
 
 ## 开发
 
