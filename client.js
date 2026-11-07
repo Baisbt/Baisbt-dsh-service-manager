@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.8.1", commit: "562acb6", built: "2026-11-07T15:28:59.125Z" };
+    const BUILD = { version: "0.8.1", commit: "5f16b87", built: "2026-11-07T15:47:51.985Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -902,7 +902,7 @@ window.__ModuleLoader__.load({
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
   .smBar{grid-template-columns:1fr 56px;grid-template-areas:"name value" "track track";row-gap:6px}
   .smBarName{grid-area:name}.smBarTrack{grid-area:track}.smBarValue{grid-area:value}
-  .smErrRow{grid-template-columns:1fr 52px;grid-template-areas:"name value" "track track";row-gap:6px}
+  .smErrRow{grid-template-columns:1fr 56px;grid-template-areas:"name value" "track track";row-gap:6px}
   .smErrName{grid-area:name}
 }
 `;
