@@ -246,6 +246,7 @@ const cases = [
     stats: statsRows,
     selectStats: "mcp:tavily",
     expectTexts: ["网络 / 超时", "DNS 解析失败", "ENOTFOUND"],
+    expectClass: "smDonut",
   },
   {
     label: "stats (错误：零调用不可判健康)",
@@ -312,6 +313,7 @@ for (const item of cases) {
     if (item.expectText) checks.push([`含「${item.expectText}」`, text.includes(item.expectText)]);
     if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
     if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);
+    if (item.expectClass) checks.push([`含节点 ${item.expectClass}`, countClass(tree, item.expectClass) > 0]);
     const failed = checks.filter(([, ok]) => !ok);
     failures += failed.length;
     console.log(

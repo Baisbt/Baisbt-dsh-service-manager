@@ -187,6 +187,7 @@ window.__ModuleLoader__.load({
         errNoCalls: "没有调用记录，无法判断健康状态",
         errTotal: "共 {n} 次",
         errBadge: "错误 {n}",
+        errUnit: "次错误",
         err: {
           NETWORK: "网络 / 超时",
           AUTH: "鉴权失败",
@@ -324,6 +325,7 @@ window.__ModuleLoader__.load({
         errNoCalls: "No calls recorded, so health is unknown",
         errTotal: "{n} total",
         errBadge: "{n} errors",
+        errUnit: "errors",
         err: {
           NETWORK: "Network / timeout",
           AUTH: "Authentication",
@@ -469,6 +471,44 @@ window.__ModuleLoader__.load({
         h("path", { key: "a", d: "M9.6 2.6a3.2 3.2 0 0 0-3.9 4.2l-3 3a1.2 1.2 0 0 0 0 1.7l.9.9a1.2 1.2 0 0 0 1.7 0l3-3a3.2 3.2 0 0 0 4.2-3.9l-2 2-1.5-.5-.5-1.5z", stroke: "currentColor", strokeWidth: 1.3, strokeLinejoin: "round" }),
       ]);
 
+    /* 错误分类图标：同一 stroke、同一 currentColor，与页面其它图标一致 */
+    const IconNetOff = (p) =>
+      svg(p, [
+        h("path", { key: "a", d: "M2.6 6.4a9.5 9.5 0 0 1 10.8 0", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+        h("path", { key: "b", d: "M5 9.4a5.6 5.6 0 0 1 6 0", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+        h("path", { key: "c", d: "M8 12.3h.01", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" }),
+        h("path", { key: "d", d: "M2.8 2.8 13.2 13.2", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+      ]);
+    const IconKey = (p) =>
+      svg(p, [
+        h("circle", { key: "a", cx: 5, cy: 8, r: 2.3, stroke: "currentColor", strokeWidth: 1.4 }),
+        h("path", { key: "b", d: "M7.3 8H13", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+        h("path", { key: "c", d: "M11 8v2.1M13 8v1.6", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+      ]);
+    const IconParam = (p) =>
+      svg(p, [
+        h("path", { key: "a", d: "m6 4.6-3.4 3.4L6 11.4", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }),
+        h("path", { key: "b", d: "m10 4.6 3.4 3.4L10 11.4", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }),
+      ]);
+    const IconStop = (p) =>
+      svg(p, [
+        h("rect", { key: "a", x: 4, y: 4, width: 8, height: 8, rx: 1.6, stroke: "currentColor", strokeWidth: 1.4 }),
+      ]);
+    const IconAlert = (p) =>
+      svg(p, [
+        h("circle", { key: "a", cx: 8, cy: 8, r: 5.4, stroke: "currentColor", strokeWidth: 1.4 }),
+        h("path", { key: "b", d: "M8 4.9v3.6", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+        h("path", { key: "c", d: "M8 10.9h.01", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" }),
+      ]);
+
+    const ERROR_ICON = {
+      NETWORK: IconNetOff,
+      AUTH: IconKey,
+      PARAM: IconParam,
+      SERVER: IconServer,
+      CANCELLED: IconStop,
+      UNKNOWN: IconAlert,
+    };
     const SidebarGlyph = () =>
       h(
         "span",
@@ -694,6 +734,32 @@ window.__ModuleLoader__.load({
 .smErrTag{display:inline-flex;align-items:center;height:16px;padding:0 5px;margin-left:6px;border-radius:3px;
   font-size:11px;line-height:16px;vertical-align:1px;color:var(--dsw-alias-state-error-primary);
   background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}
+.smDonutWrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:6px 0 2px}
+.smDonut{width:132px;height:132px;flex:0 0 auto}
+.smDonutTrack{fill:none;stroke:var(--dsw-alias-interactive-bg-hover);stroke-width:14}
+.smDonutSeg{fill:none;stroke-width:14;transition:stroke-dasharray .3s cubic-bezier(.2,.8,.2,1)}
+.smDonutSeg[data-cat=NETWORK]{stroke:var(--dsw-alias-state-warn-primary)}
+.smDonutSeg[data-cat=AUTH]{stroke:var(--dsw-alias-state-error-primary)}
+.smDonutSeg[data-cat=PARAM]{stroke:var(--dsw-alias-state-business-primary)}
+.smDonutSeg[data-cat=SERVER]{stroke:color-mix(in srgb, var(--dsw-alias-state-error-primary) 52%, var(--dsw-alias-bg-base))}
+.smDonutSeg[data-cat=CANCELLED]{stroke:var(--dsw-alias-label-caption)}
+.smDonutSeg[data-cat=UNKNOWN]{stroke:var(--dsw-alias-label-dimmed)}
+.smDonutTotal{fill:var(--dsw-alias-label-primary);font-size:26px;font-weight:500;font-family:var(--dsw-font-family)}
+.smDonutCaption{fill:var(--dsw-alias-label-caption);font-size:9px;letter-spacing:.04em}
+.smErrLegend{display:flex;flex-direction:column;gap:10px;flex:1 1 260px;min-width:0}
+.smErrLegendRow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start}
+.smErrLegendIcon{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;
+  background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.smErrLegendIcon[data-cat=NETWORK]{color:var(--dsw-alias-state-warn-primary)}
+.smErrLegendIcon[data-cat=AUTH]{color:var(--dsw-alias-state-error-primary)}
+.smErrLegendIcon[data-cat=PARAM]{color:var(--dsw-alias-state-business-primary)}
+.smErrLegendMain{display:flex;flex-direction:column;gap:1px;min-width:0}
+.smErrLegendTitle{font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary)}
+.smErrLegendWhy{font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-caption)}
+.smErrLegendValue{font-size:12px;line-height:20px;color:var(--dsw-alias-label-primary);text-align:right;
+  font-variant-numeric:tabular-nums;font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
+.smErrLegendPct{margin-left:6px;font-size:11px;color:var(--dsw-alias-label-caption)}
+@media (max-width:720px){.smDonutWrap{gap:14px}.smDonut{width:104px;height:104px}}
 .smMenuWrap{position:relative}
 .smMenu{position:absolute;top:calc(100% + 6px);right:0;min-width:196px;z-index:40;padding:4px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l4);box-shadow:var(--dsw-elevation-prominent);
@@ -2451,31 +2517,76 @@ window.__ModuleLoader__.load({
             }))
             .sort((a, b) => b.count - a.count)
         : [];
-      const catMax = Math.max(...categories.map((item) => item.count), 1);
 
-      const categoryRow = (item) => {
-        const codes = Object.entries(item.codes ?? {})
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .map(([code, times]) => (times > 1 ? `${code} ×${times}` : code))
-          .join(" · ");
-        const meta = [codes, item.sample].filter(Boolean).join(" · ");
+      /* 选中一台服务器后，错误分类是「部分与整体」关系，环形图比条形更能说明占比；
+         图例保留数量、百分比和原因解释——颜色不是唯一编码。 */
+      const errorDonut = (items) => {
+        const total = items.reduce((sum, item) => sum + item.count, 0);
+        const radius = 38;
+        const circumference = 2 * Math.PI * radius;
+        let offset = 0;
         return h(
           "div",
-          { key: item.category, className: "smErrRow" },
+          { className: "smDonutWrap" },
           h(
-            "span",
-            { className: "smErrName" },
-            h("span", { className: "smErrNameText" }, t(`err.${item.category}`)),
-            h("span", { className: "smErrWhy" }, t(`errWhy.${item.category}`)),
-            meta ? h("span", { className: "smErrMeta", title: item.sample }, meta) : null
+            "svg",
+            {
+              viewBox: "0 0 100 100",
+              className: "smDonut",
+              role: "img",
+              "aria-label": `${t("errTitle")} ${total}`,
+            },
+            h("circle", { cx: 50, cy: 50, r: radius, className: "smDonutTrack" }),
+            items.map((item) => {
+              const dash = (item.count / total) * circumference;
+              const node = h("circle", {
+                key: item.category,
+                cx: 50,
+                cy: 50,
+                r: radius,
+                className: "smDonutSeg",
+                "data-cat": item.category,
+                strokeDasharray: `${dash} ${circumference - dash}`,
+                strokeDashoffset: -offset,
+                transform: "rotate(-90 50 50)",
+              });
+              offset += dash;
+              return node;
+            }),
+            h("text", { x: 50, y: 48, className: "smDonutTotal", textAnchor: "middle" }, String(total)),
+            h("text", { x: 50, y: 62, className: "smDonutCaption", textAnchor: "middle" }, t("errUnit"))
           ),
           h(
-            "span",
-            { className: "smBarTrack" },
-            h("span", { className: "smBarFill", style: { width: `${(item.count / catMax) * 100}%` } })
-          ),
-          h("span", { className: "smBarValue" }, String(item.count))
+            "div",
+            { className: "smErrLegend" },
+            items.map((item) => {
+              const Icon = ERROR_ICON[item.category] ?? IconAlert;
+              const codes = Object.entries(item.codes ?? {})
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 2)
+                .map(([code, times]) => (times > 1 ? `${code} ×${times}` : code))
+                .join(" · ");
+              const pct = total ? Math.round((item.count / total) * 100) : 0;
+              return h(
+                "div",
+                { key: item.category, className: "smErrLegendRow" },
+                h("span", { className: "smErrLegendIcon", "data-cat": item.category }, h(Icon, { size: 14 })),
+                h(
+                  "span",
+                  { className: "smErrLegendMain" },
+                  h("span", { className: "smErrLegendTitle" }, t(`err.${item.category}`)),
+                  h("span", { className: "smErrLegendWhy" }, t(`errWhy.${item.category}`)),
+                  codes ? h("span", { className: "smErrMeta", title: item.sample }, codes) : null
+                ),
+                h(
+                  "span",
+                  { className: "smErrLegendValue" },
+                  String(item.count),
+                  h("span", { className: "smErrLegendPct" }, `${pct}%`)
+                )
+              );
+            })
+          )
         );
       };
 
@@ -2485,7 +2596,7 @@ window.__ModuleLoader__.load({
         ? activeRow.count === 0
           ? h("div", { className: "smHint" }, t("errNoCalls"))
           : categories.length
-            ? h("div", { className: "smErrList" }, categories.map(categoryRow))
+            ? errorDonut(categories)
             : h("div", { className: "smHint" }, activeRow.fails ? t("errNone") : t("errNoneFor"))
         : failing.length
           ? h("div", { className: "smErrList" }, failing.map(serverFailRow))
