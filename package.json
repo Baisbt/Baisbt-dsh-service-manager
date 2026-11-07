@@ -1,6 +1,6 @@
 {
   "name": "dsh-service-manager",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "MCP 服务器与 SKILL 的统一管理页：查看、安装、启停、删除 MCP，浏览技能并用本地模型翻译摘要，统计调用次数。",
   "type": "module",
   "main": "index.js",

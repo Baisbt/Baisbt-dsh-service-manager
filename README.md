@@ -57,6 +57,8 @@ Per-server and per-skill call counts, accumulated from the day you install. Answ
 
 MCP failures are counted and classified too — network/timeout, authentication, bad parameters, server error, cancelled, unknown. Select a server and the chart switches from "errors by server" to "errors by category", each with a one-line explanation plus the raw code and a sanitized sample.
 
+A 14-day column chart sits above the tables, and every row carries its own sparkline plus a red segment showing the share that failed.
+
 ### Agent tool
 
 The plugin also registers an `mcp_service` tool, so you can say *"install the filesystem MCP"* in a conversation instead of switching pages.

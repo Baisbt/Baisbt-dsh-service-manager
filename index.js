@@ -816,6 +816,16 @@ function sanitizeSample(text) {
   return value.slice(0, SAMPLE_MAX);
 }
 
+/** 最近 N 天的本地日键，从旧到新——趋势图与每行的迷你柱都用这个顺序。 */
+function recentDayKeys(count = 14) {
+  const out = [];
+  const now = new Date();
+  for (let back = count - 1; back >= 0; back -= 1) {
+    out.push(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - back)));
+  }
+  return out;
+}
+
 /**
  * 原始错误码。优先取宿主的 info.code；MCP 服务端抛的校验错误常常没有 info，
  * 就从文案里捞（pydantic 的 `type=int_parsing`、Node 的 `ECONNREFUSED`）。
@@ -1545,10 +1555,23 @@ export function apply(ctx, config) {
           /* ignore */
         }
 
-        const merged = [...rows.values()].sort(
-          (a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name))
-        );
-        return json({ ok: true, since: statsSince, rows: merged });
+        /* 按天序列：趋势图和每行的迷你柱都用它。窗口固定 14 天，缺的补 0。 */
+        const dayKeys = recentDayKeys();
+        const seriesOf = (key) => {
+          const okSeries = [];
+          const failSeries = [];
+          for (const day of dayKeys) {
+            const bucket = days.get(day)?.get(key);
+            okSeries.push(bucket?.ok ?? 0);
+            failSeries.push(bucket?.fail ?? 0);
+          }
+          return { ok: okSeries, fail: failSeries };
+        };
+
+        const merged = [...rows.values()]
+          .map((row) => ({ ...row, series: seriesOf(row.key) }))
+          .sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name)));
+        return json({ ok: true, since: statsSince, days: dayKeys, rows: merged });
       } catch (error) {
         return fail(error);
       }

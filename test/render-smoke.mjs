@@ -198,22 +198,70 @@ const toolEntries = {
 };
 
 /* 统计页：0 次的行必须也在，否则用户分不清「没被用过」和「不支持统计」 */
+const statsDays = Array.from({ length: 14 }, (_, i) => {
+  const d = new Date(2026, 10, 7);
+  d.setDate(d.getDate() - (13 - i));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+});
+const zeros = () => new Array(14).fill(0);
+const at = (index, value) => {
+  const list = zeros();
+  list[index] = value;
+  return list;
+};
+
 const statsRows = [
   {
     key: "mcp:tavily",
     kind: "mcp",
     name: "tavily",
-    ok: 12,
+    ok: 14,
     fails: 1,
-    count: 13,
+    count: 15,
     lastAt: 0,
     lastFailAt: 0,
     errors: { NETWORK: { count: 1, lastAt: 0, codes: { ENOTFOUND: 1 }, sample: "fetch failed: getaddrinfo ENOTFOUND" } },
+    series: { ok: at(12, 14), fail: at(13, 1) },
   },
-  { key: "mcp:github", kind: "mcp", name: "github", ok: 0, fails: 0, count: 0, lastAt: 0, lastFailAt: 0, errors: {} },
-  { key: "skill:banner-design", kind: "skill", name: "banner-design", ok: 3, fails: 0, count: 3, lastAt: 0, lastFailAt: 0, errors: {} },
-  { key: "skill:brand", kind: "skill", name: "brand", ok: 0, fails: 0, count: 0, lastAt: 0, lastFailAt: 0, errors: {} },
+  {
+    key: "mcp:github",
+    kind: "mcp",
+    name: "github",
+    ok: 0,
+    fails: 0,
+    count: 0,
+    lastAt: 0,
+    lastFailAt: 0,
+    errors: {},
+    series: { ok: zeros(), fail: zeros() },
+  },
+  {
+    key: "skill:banner-design",
+    kind: "skill",
+    name: "banner-design",
+    ok: 3,
+    fails: 0,
+    count: 3,
+    lastAt: 0,
+    lastFailAt: 0,
+    errors: {},
+    series: { ok: at(12, 3), fail: zeros() },
+  },
+  {
+    key: "skill:brand",
+    kind: "skill",
+    name: "brand",
+    ok: 0,
+    fails: 0,
+    count: 0,
+    lastAt: 0,
+    lastFailAt: 0,
+    errors: {},
+    series: { ok: zeros(), fail: zeros() },
+  },
 ];
+
+store = { ...store, statsDays };
 
 const cases = [
   { label: "skill (无译文)", tab: "skill" },
@@ -233,6 +281,13 @@ const cases = [
     tab: "stats",
     stats: statsRows,
     expectTexts: ["MCP 工具调用", "技能调用", "banner-design", "brand", "已用 1 / 2"],
+  },
+  {
+    label: "stats (近 14 天趋势柱 + 行内迷你柱)",
+    tab: "stats",
+    stats: statsRows,
+    expectTexts: ["近 14 天调用", "失败"],
+    expectClass: ["smActChart", "smSpark"],
   },
   {
     label: "stats (错误：未选中按服务器)",
@@ -313,7 +368,7 @@ for (const item of cases) {
     if (item.expectText) checks.push([`含「${item.expectText}」`, text.includes(item.expectText)]);
     if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
     if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);
-    if (item.expectClass) checks.push([`含节点 ${item.expectClass}`, countClass(tree, item.expectClass) > 0]);
+    for (const name of [].concat(item.expectClass ?? [])) checks.push([`含节点 ${name}`, countClass(tree, name) > 0]);
     const failed = checks.filter(([, ok]) => !ok);
     failures += failed.length;
     console.log(

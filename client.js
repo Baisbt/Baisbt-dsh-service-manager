@@ -188,6 +188,11 @@ window.__ModuleLoader__.load({
         errTotal: "共 {n} 次",
         errBadge: "错误 {n}",
         errUnit: "次错误",
+        activityTitle: "近 14 天调用",
+        actMcp: "MCP",
+        actSkill: "技能",
+        actFail: "失败",
+        actEmpty: "近 14 天还没有调用",
         err: {
           NETWORK: "网络 / 超时",
           AUTH: "鉴权失败",
@@ -326,6 +331,11 @@ window.__ModuleLoader__.load({
         errTotal: "{n} total",
         errBadge: "{n} errors",
         errUnit: "errors",
+        activityTitle: "Calls, last 14 days",
+        actMcp: "MCP",
+        actSkill: "Skills",
+        actFail: "Failed",
+        actEmpty: "No calls in the last 14 days",
         err: {
           NETWORK: "Network / timeout",
           AUTH: "Authentication",
@@ -702,10 +712,11 @@ window.__ModuleLoader__.load({
 .smLinkBtn:hover{color:var(--dsw-alias-label-primary)}
 .smLinkBtn:disabled{color:var(--dsw-alias-label-dimmed);cursor:default;text-decoration:none}
 .smBars{display:flex;flex-direction:column;gap:14px}
-.smBar{display:grid;grid-template-columns:minmax(120px,180px) 1fr 64px;align-items:center;gap:14px}
+.smBar{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px;align-items:center;gap:14px}
 .smBarName{font-size:13px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smBarTrack{height:6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-active);overflow:hidden}
-.smBarFill{height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary);transition:width .3s cubic-bezier(.2,.8,.2,1)}
+.smBarFill{display:block;position:relative;height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary);transition:width .3s cubic-bezier(.2,.8,.2,1);overflow:hidden}
+.smBarFail{position:absolute;top:0;bottom:0;right:0;background:var(--dsw-alias-state-error-primary)}
 .smBarValue{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;
   font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
 .smStatsMeta{display:flex;flex-direction:column;gap:3px;margin-top:-4px}
@@ -714,6 +725,18 @@ window.__ModuleLoader__.load({
 .smSectionMeta{font-size:11px;line-height:14px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
 .smBar[data-idle=true] .smBarName{color:var(--dsw-alias-label-tertiary)}
 .smBar[data-idle=true] .smBarValue{color:var(--dsw-alias-label-caption)}
+.smSpark{width:56px;height:18px;flex:0 0 auto;display:block}
+.smSparkOk{fill:var(--dsw-alias-state-business-primary);opacity:.6}
+.smSparkFail{fill:var(--dsw-alias-state-error-primary)}
+.smSparkEmpty{fill:var(--dsw-alias-label-dimmed);opacity:.45}
+.smAct{display:flex;flex-direction:column;gap:10px;padding:6px 0 2px}
+.smActChart{width:100%;max-width:420px;height:56px;display:block}
+.smActMcp{fill:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary)}
+.smActSkill{fill:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-state-success-primary)}
+.smActFail{fill:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-state-error-primary)}
+.smActLegend{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.smActKey{display:inline-flex;align-items:center;gap:6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
+.smActDot{display:inline-block;width:8px;height:8px;border-radius:2px}
 .smSectionTools{display:flex;align-items:center;gap:8px}
 .smChip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border-radius:6px;
   border:1px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);
@@ -2446,6 +2469,49 @@ window.__ModuleLoader__.load({
           })
         : null;
 
+      /* 迷你柱：稀疏计数用柱不用折线——0 值必须有视觉落点。
+         全行共用一个刻度，横向才可比。 */
+      const sparkMax = Math.max(
+        1,
+        ...rows.flatMap((row) => {
+          const ok = row.series?.ok ?? [];
+          const fail = row.series?.fail ?? [];
+          return ok.map((value, index) => value + (fail[index] ?? 0));
+        })
+      );
+
+      const spark = (row, key) => {
+        const ok = row.series?.ok ?? [];
+        if (!ok.length) return null;
+        const fail = row.series?.fail ?? [];
+        const W = 56;
+        const H = 18;
+        const step = W / ok.length;
+        const barW = Math.max(2, step - 1.2);
+        return h(
+          "svg",
+          { key, viewBox: `0 0 ${W} ${H}`, className: "smSpark", "aria-hidden": "true" },
+          ok.map((value, index) => {
+            const failed = fail[index] ?? 0;
+            const total = value + failed;
+            if (!total) {
+              return h("rect", { key: index, x: index * step, y: H - 1.5, width: barW, height: 1.5, className: "smSparkEmpty" });
+            }
+            const totalH = Math.max(2, (total / sparkMax) * H);
+            const failH = (failed / total) * totalH;
+            const okH = totalH - failH;
+            return h(
+              "g",
+              { key: index },
+              okH > 0 ? h("rect", { x: index * step, y: H - okH, width: barW, height: okH, className: "smSparkOk" }) : null,
+              failH > 0
+                ? h("rect", { x: index * step, y: H - totalH, width: barW, height: failH, className: "smSparkFail" })
+                : null
+            );
+          })
+        );
+      };
+
       /* 0 次的行也要在：没有这一行，用户无法区分「没被用过」和「不支持统计」 */
       const bar = (row) =>
         h(
@@ -2460,9 +2526,14 @@ window.__ModuleLoader__.load({
           h(
             "span",
             { className: "smBarTrack" },
-            h("span", { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } })
+            h(
+              "span",
+              { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } },
+              row.fails ? h("span", { className: "smBarFail", style: { width: `${(row.fails / row.count) * 100}%` } }) : null
+            )
           ),
-          h("span", { className: "smBarValue" }, String(row.count))
+          h("span", { className: "smBarValue" }, String(row.count)),
+          spark(row, `spark-${keyOf(row)}`)
         );
 
       const section = (title, list, emptyText) => {
@@ -2626,6 +2697,84 @@ window.__ModuleLoader__.load({
         errorBody
       );
 
+      /* 顶部趋势：按天的调用量，成功按来源堆叠、失败盖在最上面 */
+      const dayKeys = state.statsDays ?? [];
+      let activitySection = null;
+      if (dayKeys.length) {
+        const buckets = { mcp: [], skill: [], fail: [] };
+        for (let index = 0; index < dayKeys.length; index += 1) {
+          buckets.mcp.push(0);
+          buckets.skill.push(0);
+          buckets.fail.push(0);
+        }
+        for (const row of rows) {
+          const ok = row.series?.ok ?? [];
+          const fail = row.series?.fail ?? [];
+          for (let index = 0; index < dayKeys.length; index += 1) {
+            const value = ok[index] ?? 0;
+            if (row.kind === "mcp") buckets.mcp[index] += value;
+            else buckets.skill[index] += value;
+            buckets.fail[index] += fail[index] ?? 0;
+          }
+        }
+        const totals = dayKeys.map((_, index) => buckets.mcp[index] + buckets.skill[index] + buckets.fail[index]);
+        const peak = Math.max(...totals, 1);
+        const anyCall = totals.some((value) => value > 0);
+        const W = 196;
+        const H = 56;
+        const step = W / dayKeys.length;
+        const barW = Math.max(3, step - 4);
+        const shortDate = (key) => String(key).slice(5).replace("-", "/");
+
+        activitySection = h(
+          "section",
+          { className: "smSection" },
+          h(
+            "div",
+            { className: "smSectionHead" },
+            h("h3", { className: "smSectionTitle" }, t("activityTitle")),
+            h(
+              "span",
+              { className: "smSectionMeta" },
+              `${shortDate(dayKeys[0])} – ${shortDate(dayKeys[dayKeys.length - 1])}`
+            )
+          ),
+          anyCall
+            ? h(
+                "div",
+                { className: "smAct" },
+                h(
+                  "svg",
+                  { viewBox: `0 0 ${W} ${H}`, className: "smActChart", role: "img", "aria-label": t("activityTitle") },
+                  dayKeys.map((day, index) => {
+                    let cursor = H;
+                    const segs = [];
+                    const add = (value, className, suffix) => {
+                      if (!value) return;
+                      const height = Math.max(1, (value / peak) * H);
+                      cursor -= height;
+                      segs.push(
+                        h("rect", { key: `${day}-${suffix}`, x: index * step, y: cursor, width: barW, height, className })
+                      );
+                    };
+                    add(buckets.mcp[index], "smActMcp", "mcp");
+                    add(buckets.skill[index], "smActSkill", "skill");
+                    add(buckets.fail[index], "smActFail", "fail");
+                    return h("g", { key: day }, segs);
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "smActLegend" },
+                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActMcp" }), t("actMcp")),
+                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActSkill" }), t("actSkill")),
+                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActFail" }), t("actFail"))
+                )
+              )
+            : h("div", { className: "smHint" }, t("actEmpty"))
+        );
+      }
+
       return h(
         React.Fragment,
         null,
@@ -2635,6 +2784,7 @@ window.__ModuleLoader__.load({
           h("span", { className: "smStatsSince" }, since ? `${t("statSince")} ${since}` : t("statSinceUnknown")),
           h("span", { className: "smStatsRule" }, t("statRule"))
         ),
+        activitySection,
         section(t("mcpcalls"), servers, t("statNoServers")),
         section(t("skillcalls"), skills, t("statNoSkills")),
         errorSection
@@ -2831,7 +2981,7 @@ window.__ModuleLoader__.load({
             }
             if (scope === "stats" || scope === "all") {
               const payload = await request("/api/service-manager/stats");
-              set({ stats: payload.rows ?? [], statsSince: payload.since ?? null });
+              set({ stats: payload.rows ?? [], statsSince: payload.since ?? null, statsDays: payload.days ?? [] });
             }
           } catch (error) {
             set({ error: error.message });
