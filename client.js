@@ -179,6 +179,30 @@ window.__ModuleLoader__.load({
         statUsed: "已用 {n} / {m}",
         statNoServers: "还没有配置 MCP 服务器",
         statNoSkills: "还没有发现技能",
+        errTitle: "MCP 调用错误",
+        errScopeAll: "全部服务器",
+        errClear: "清除筛选",
+        errNone: "还没有调用错误",
+        errNoneFor: "这台服务器还没有报过错",
+        errNoCalls: "没有调用记录，无法判断健康状态",
+        errTotal: "共 {n} 次",
+        errBadge: "错误 {n}",
+        err: {
+          NETWORK: "网络 / 超时",
+          AUTH: "鉴权失败",
+          PARAM: "参数错误",
+          SERVER: "服务端错误",
+          CANCELLED: "调用被取消",
+          UNKNOWN: "未知",
+        },
+        errWhy: {
+          NETWORK: "连不上或响应太慢：DNS 解析失败、连接被拒绝、读超时",
+          AUTH: "密钥无效或过期，或这个 key 没有该接口的权限",
+          PARAM: "模型给的参数不符合工具入参结构，请求没发出去就被拦下",
+          SERVER: "服务器收到请求但自己出错：崩溃、过载、上游不可用",
+          CANCELLED: "你中断了这一轮，或超时策略主动掐断",
+          UNKNOWN: "无法归类，展开可见原始错误码与样本",
+        },
         openFile: "打开配置文件",
         openFolder: "打开配置目录",
         externalNote: "由用户手工维护，本页仅展示",
@@ -292,6 +316,30 @@ window.__ModuleLoader__.load({
         statUsed: "{n} of {m} used",
         statNoServers: "No MCP servers configured",
         statNoSkills: "No skills found",
+        errTitle: "MCP call errors",
+        errScopeAll: "All servers",
+        errClear: "Clear filter",
+        errNone: "No call errors yet",
+        errNoneFor: "This server has not failed yet",
+        errNoCalls: "No calls recorded, so health is unknown",
+        errTotal: "{n} total",
+        errBadge: "{n} errors",
+        err: {
+          NETWORK: "Network / timeout",
+          AUTH: "Authentication",
+          PARAM: "Bad parameters",
+          SERVER: "Server error",
+          CANCELLED: "Cancelled",
+          UNKNOWN: "Unknown",
+        },
+        errWhy: {
+          NETWORK: "Cannot reach it or it is too slow: DNS failure, connection refused, read timeout",
+          AUTH: "The key is invalid or expired, or it lacks permission for this endpoint",
+          PARAM: "The model's arguments did not match the tool schema, so the call never left",
+          SERVER: "The server received the call and failed: crash, overload, upstream unavailable",
+          CANCELLED: "You interrupted the turn, or a timeout policy aborted it",
+          UNKNOWN: "Not classifiable; expand to see the raw code and sample",
+        },
         openFile: "Open config file",
         openFolder: "Open config folder",
         externalNote: "Maintained by hand; read-only here",
@@ -626,6 +674,26 @@ window.__ModuleLoader__.load({
 .smSectionMeta{font-size:11px;line-height:14px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
 .smBar[data-idle=true] .smBarName{color:var(--dsw-alias-label-tertiary)}
 .smBar[data-idle=true] .smBarValue{color:var(--dsw-alias-label-caption)}
+.smSectionTools{display:flex;align-items:center;gap:8px}
+.smChip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border-radius:6px;
+  border:1px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);
+  font:inherit;font-size:12px;line-height:18px;cursor:pointer;transition:color .12s ease,border-color .12s ease}
+.smChip:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4)}
+.smErrList{display:flex;flex-direction:column;gap:10px}
+.smErrRow{display:grid;grid-template-columns:minmax(160px,300px) 1fr 56px;align-items:center;gap:14px;width:100%;
+  padding:4px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
+.smErrRowBtn{cursor:pointer;border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;margin:0 -8px;width:calc(100% + 16px);
+  transition:background .12s ease}
+.smErrRowBtn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.smErrRowBtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
+.smErrName{display:flex;flex-direction:column;gap:1px;min-width:0}
+.smErrNameText{font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smErrWhy{font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-caption)}
+.smErrMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
+.smErrTag{display:inline-flex;align-items:center;height:16px;padding:0 5px;margin-left:6px;border-radius:3px;
+  font-size:11px;line-height:16px;vertical-align:1px;color:var(--dsw-alias-state-error-primary);
+  background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}
 .smMenuWrap{position:relative}
 .smMenu{position:absolute;top:calc(100% + 6px);right:0;min-width:196px;z-index:40;padding:4px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l4);box-shadow:var(--dsw-elevation-prominent);
@@ -2281,7 +2349,9 @@ window.__ModuleLoader__.load({
       );
     }
     function StatsView({ t, state }) {
+      const [selected, setSelected] = useState(null);
       const rows = state.stats ?? [];
+
       if (state.loading && !state.stats) {
         return h("div", { className: "smSkeleton", style: { height: 120, borderRadius: 12 } });
       }
@@ -2295,7 +2365,13 @@ window.__ModuleLoader__.load({
         );
       }
 
+      const keyOf = (row) => `${row.kind}:${row.name}`;
       const max = Math.max(...rows.map((row) => row.count), 1);
+      const servers = rows.filter((row) => row.kind === "mcp");
+      const skills = rows.filter((row) => row.kind === "skill");
+      const failTotal = rows.reduce((sum, row) => sum + (row.fails ?? 0), 0);
+      const activeRow = selected ? servers.find((row) => keyOf(row) === selected) ?? null : null;
+
       const since = state.statsSince
         ? new Date(state.statsSince).toLocaleDateString(dateLocale(), {
             year: "numeric",
@@ -2308,8 +2384,13 @@ window.__ModuleLoader__.load({
       const bar = (row) =>
         h(
           "div",
-          { key: `${row.kind}:${row.name}`, className: "smBar", "data-idle": row.count === 0 },
-          h("span", { className: "smBarName", title: row.name }, row.name),
+          { key: keyOf(row), className: "smBar", "data-idle": row.count === 0 },
+          h(
+            "span",
+            { className: "smBarName", title: row.name },
+            row.name,
+            row.fails ? h("span", { className: "smErrTag" }, t("errBadge").replace("{n}", String(row.fails))) : null
+          ),
           h(
             "span",
             { className: "smBarTrack" },
@@ -2333,6 +2414,107 @@ window.__ModuleLoader__.load({
         );
       };
 
+      /* 未选中按服务器汇总，选中后换成这台服务器的错误分类。
+         同一张图换维度，所以区块右边必须写明当前看的是什么，并给出清除入口。 */
+      const failing = servers
+        .filter((row) => (row.fails ?? 0) > 0)
+        .sort((a, b) => (b.fails ?? 0) - (a.fails ?? 0) || a.name.localeCompare(b.name));
+      const failMax = Math.max(...failing.map((row) => row.fails ?? 0), 1);
+
+      const serverFailRow = (row) =>
+        h(
+          "button",
+          {
+            key: keyOf(row),
+            type: "button",
+            className: "smErrRow smErrRowBtn",
+            onClick: () => setSelected(keyOf(row)),
+            "aria-label": `${row.name} — ${t("errBadge").replace("{n}", String(row.fails ?? 0))}`,
+          },
+          h("span", { className: "smErrName" }, h("span", { className: "smErrNameText" }, row.name)),
+          h(
+            "span",
+            { className: "smBarTrack" },
+            h("span", { className: "smBarFill", style: { width: `${((row.fails ?? 0) / failMax) * 100}%` } })
+          ),
+          h("span", { className: "smBarValue" }, String(row.fails ?? 0))
+        );
+
+      const categories = activeRow
+        ? Object.entries(activeRow.errors ?? {})
+            .map(([category, value]) => ({
+              category,
+              count: Number(value?.count) || 0,
+              lastAt: Number(value?.lastAt) || 0,
+              codes: value?.codes ?? {},
+              sample: String(value?.sample ?? ""),
+            }))
+            .sort((a, b) => b.count - a.count)
+        : [];
+      const catMax = Math.max(...categories.map((item) => item.count), 1);
+
+      const categoryRow = (item) => {
+        const codes = Object.entries(item.codes ?? {})
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([code, times]) => (times > 1 ? `${code} ×${times}` : code))
+          .join(" · ");
+        const meta = [codes, item.sample].filter(Boolean).join(" · ");
+        return h(
+          "div",
+          { key: item.category, className: "smErrRow" },
+          h(
+            "span",
+            { className: "smErrName" },
+            h("span", { className: "smErrNameText" }, t(`err.${item.category}`)),
+            h("span", { className: "smErrWhy" }, t(`errWhy.${item.category}`)),
+            meta ? h("span", { className: "smErrMeta", title: item.sample }, meta) : null
+          ),
+          h(
+            "span",
+            { className: "smBarTrack" },
+            h("span", { className: "smBarFill", style: { width: `${(item.count / catMax) * 100}%` } })
+          ),
+          h("span", { className: "smBarValue" }, String(item.count))
+        );
+      };
+
+      /* 零调用 ≠ 零错误：连不上的服务器根本不会产生 tools/result，
+         这里必须说「无法判断」，不能显示成健康。 */
+      const errorBody = activeRow
+        ? activeRow.count === 0
+          ? h("div", { className: "smHint" }, t("errNoCalls"))
+          : categories.length
+            ? h("div", { className: "smErrList" }, categories.map(categoryRow))
+            : h("div", { className: "smHint" }, activeRow.fails ? t("errNone") : t("errNoneFor"))
+        : failing.length
+          ? h("div", { className: "smErrList" }, failing.map(serverFailRow))
+          : h("div", { className: "smHint" }, t("errNone"));
+
+      const errorSection = h(
+        "section",
+        { className: "smSection" },
+        h(
+          "div",
+          { className: "smSectionHead" },
+          h("h3", { className: "smSectionTitle" }, t("errTitle")),
+          h(
+            "div",
+            { className: "smSectionTools" },
+            activeRow
+              ? h(
+                  "button",
+                  { type: "button", className: "smChip", onClick: () => setSelected(null), title: t("errClear") },
+                  h("span", null, activeRow.name),
+                  h(IconClose, { size: 11 })
+                )
+              : h("span", { className: "smSectionMeta" }, t("errScopeAll")),
+            failTotal ? h("span", { className: "smSectionMeta" }, t("errTotal").replace("{n}", String(failTotal))) : null
+          )
+        ),
+        errorBody
+      );
+
       return h(
         React.Fragment,
         null,
@@ -2342,8 +2524,9 @@ window.__ModuleLoader__.load({
           h("span", { className: "smStatsSince" }, since ? `${t("statSince")} ${since}` : t("statSinceUnknown")),
           h("span", { className: "smStatsRule" }, t("statRule"))
         ),
-        section(t("mcpcalls"), rows.filter((row) => row.kind === "mcp"), t("statNoServers")),
-        section(t("skillcalls"), rows.filter((row) => row.kind === "skill"), t("statNoSkills"))
+        section(t("mcpcalls"), servers, t("statNoServers")),
+        section(t("skillcalls"), skills, t("statNoSkills")),
+        errorSection
       );
     }
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 服务管理页 · Host 半区
  *
  * 职责：
@@ -754,6 +754,68 @@ async function machineTranslate(texts) {
   return out.map((value) => (typeof value === "string" ? value : null));
 }
 
+/* ------------------------------------------------------------------ 统计 */
+
+const STATS_VERSION = 2;
+const RETAIN_DAYS = 90;
+const MAX_CODES_PER_CATEGORY = 8;
+const SAMPLE_MAX = 200;
+
+/** 错误分类是**给人看的**固定 6 类；原始 code 另外保存给排障用。 */
+const ERROR_CATEGORIES = ["NETWORK", "AUTH", "PARAM", "SERVER", "CANCELLED", "UNKNOWN"];
+
+/** 本地日（不是 UTC）：UTC 会在 +08:00 的早上 8 点切天，图表会错位。 */
+function dayKey(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * 把宿主的 (code, message) 归到 6 类里。
+ * 顺序有讲究：先鉴权再参数——"invalid token" 两个正则都能命中，归鉴权才对。
+ */
+function classifyError(result) {
+  const info = result?.error?.info ?? {};
+  const code = String(info.code ?? info.name ?? "").toLowerCase();
+  const message = String(result?.error?.message ?? "").toLowerCase();
+  const text = `${code} ${message}`;
+
+  if (
+    /^e(notfound|conn|timedout|reset|ai_again|netunreach|hostunreach|pipe)/.test(code) ||
+    /timeout|timed out|fetch failed|network|socket|econn|dns|enotfound|etimedout|unreachable|offline/.test(text)
+  ) {
+    return "NETWORK";
+  }
+  if (/\b(401|403)\b|unauthor|forbidden|authentic|api[-_ ]?key|invalid[ _-]?token|expired/.test(text)) {
+    return "AUTH";
+  }
+  if (/invalid|validation|bad[-_]request|schema|missing|unexpected|not[-_]?found|unknown[-_]?tool/.test(text)) {
+    return "PARAM";
+  }
+  if (/\b5\d\d\b|server[-_]error|internal[-_]error|upstream|overload|unavailable/.test(text)) {
+    return "SERVER";
+  }
+  if (/abort|cancel|interrupt|sigint|sigterm/.test(text)) {
+    return "CANCELLED";
+  }
+  return "UNKNOWN";
+}
+
+/**
+ * 错误原文落盘前必须脱敏：MCP 的地址里常带 API key（tavily 就是 ?tavilyApiKey=…），
+ * 一条 fetch 错误就可能把密钥写进 stats.json。
+ */
+function sanitizeSample(text) {
+  let value = String(text ?? "");
+  value = value.replace(/\?\S*/g, "?…");
+  value = value.replace(/\b(tvly|sk|pk|ghp|gho|ghs|xox[abprs])[-_][A-Za-z0-9_-]{4,}/gi, "$1-***");
+  value = value.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer ***");
+  value = value.replace(/[A-Za-z0-9_-]{32,}/g, "***");
+  value = value.replace(/\s+/g, " ").trim();
+  return value.slice(0, SAMPLE_MAX);
+}
+
 /* ------------------------------------------------------------------ 插件 */
 
 export function apply(ctx, config) {
@@ -765,7 +827,9 @@ export function apply(ctx, config) {
   const translateFile = path.join(stateDir, "translations.json");
   const settingsFile = path.join(stateDir, "settings.json");
   const diagnosticsFile = path.join(stateDir, "diagnostics.json");
-  const counters = new Map();
+  const counters = new Map(); /* key -> { ok, fail, lastAt, lastFailAt } */
+  const days = new Map(); /* "YYYY-MM-DD" -> Map<key, { ok, fail }> */
+  const errorStats = new Map(); /* key -> { CATEGORY: { count, lastAt, codes, sample } } */
   let statsSince = null;
   let saveTimer = null;
   let translateStore = null;
@@ -817,15 +881,79 @@ export function apply(ctx, config) {
     return settingsCache;
   }
 
+  /* ---- 统计：内存 → 磁盘（v2：按天分桶 + 成功失败 + 错误分类） ---- */
+
+  function bumpCounter(key, ok) {
+    const entry = counters.get(key) ?? { ok: 0, fail: 0, lastAt: 0, lastFailAt: 0 };
+    if (ok) entry.ok += 1;
+    else {
+      entry.fail += 1;
+      entry.lastFailAt = Date.now();
+    }
+    entry.lastAt = Date.now();
+    counters.set(key, entry);
+
+    const day = dayKey();
+    let bucket = days.get(day);
+    if (!bucket) {
+      bucket = new Map();
+      days.set(day, bucket);
+    }
+    const slot = bucket.get(key) ?? { ok: 0, fail: 0 };
+    if (ok) slot.ok += 1;
+    else slot.fail += 1;
+    bucket.set(key, slot);
+  }
+
+  function recordError(key, result) {
+    const category = classifyError(result);
+    let bucket = errorStats.get(key);
+    if (!bucket) {
+      bucket = {};
+      errorStats.set(key, bucket);
+    }
+    let entry = bucket[category];
+    if (!entry) {
+      entry = { count: 0, lastAt: 0, codes: {}, sample: "" };
+      bucket[category] = entry;
+    }
+    entry.count += 1;
+    entry.lastAt = Date.now();
+
+    const info = result?.error?.info ?? {};
+    const code = String(info.code ?? info.name ?? "").slice(0, 40) || "unknown";
+    entry.codes[code] = (entry.codes[code] ?? 0) + 1;
+    if (Object.keys(entry.codes).length > MAX_CODES_PER_CATEGORY) {
+      entry.codes = Object.fromEntries(
+        Object.entries(entry.codes)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_CODES_PER_CATEGORY)
+      );
+    }
+    if (!entry.sample) entry.sample = sanitizeSample(result?.error?.message);
+  }
+
+  function pruneDays() {
+    const keys = [...days.keys()].sort();
+    while (keys.length > RETAIN_DAYS) {
+      const oldest = keys.shift();
+      days.delete(oldest);
+    }
+  }
+
   const scheduleSave = () => {
     if (saveTimer) return;
     saveTimer = setTimeout(async () => {
       saveTimer = null;
       try {
+        pruneDays();
         await ensureStateDir(profileDir);
         await writeJsonFile(statsFile, {
+          version: STATS_VERSION,
           since: statsSince,
-          rows: [...counters.entries()].map(([key, value]) => ({ key, count: value.count, lastAt: value.lastAt })),
+          counters: Object.fromEntries(counters),
+          days: Object.fromEntries([...days].map(([day, bucket]) => [day, Object.fromEntries(bucket)])),
+          errors: Object.fromEntries(errorStats),
         });
       } catch {
         /* 统计落盘失败不影响主流程 */
@@ -837,13 +965,43 @@ export function apply(ctx, config) {
     try {
       await ensureStateDir(profileDir);
       const saved = await readJsonFile(statsFile, null);
-      if (saved && Array.isArray(saved.rows)) {
-        for (const row of saved.rows) {
-          if (typeof row?.key !== "string") continue;
-          counters.set(row.key, { count: Number(row.count) || 0, lastAt: Number(row.lastAt) || 0 });
+
+      if (saved && saved.version === STATS_VERSION) {
+        for (const [key, value] of Object.entries(saved.counters ?? {})) {
+          counters.set(key, {
+            ok: Number(value?.ok) || 0,
+            fail: Number(value?.fail) || 0,
+            lastAt: Number(value?.lastAt) || 0,
+            lastFailAt: Number(value?.lastFailAt) || 0,
+          });
+        }
+        for (const [day, bucket] of Object.entries(saved.days ?? {})) {
+          const map = new Map();
+          for (const [key, value] of Object.entries(bucket ?? {})) {
+            map.set(key, { ok: Number(value?.ok) || 0, fail: Number(value?.fail) || 0 });
+          }
+          days.set(day, map);
+        }
+        for (const [key, bucket] of Object.entries(saved.errors ?? {})) {
+          if (bucket && typeof bucket === "object") errorStats.set(key, bucket);
         }
         if (typeof saved.since === "string") statsSince = saved.since;
+      } else if (saved && Array.isArray(saved.rows)) {
+        /* v1 迁移：老数据只有累计次数，没有成败与分类。归到 since 当天的一桶，
+           失败数记为 0 —— 不编造历史。 */
+        const legacyDay = dayKey(saved.since ? new Date(saved.since) : new Date());
+        const bucket = new Map();
+        for (const row of saved.rows) {
+          if (typeof row?.key !== "string") continue;
+          const total = Number(row.count) || 0;
+          const lastAt = Number(row.lastAt) || 0;
+          counters.set(row.key, { ok: total, fail: 0, lastAt, lastFailAt: 0 });
+          bucket.set(row.key, { ok: total, fail: 0 });
+        }
+        if (bucket.size) days.set(legacyDay, bucket);
+        if (typeof saved.since === "string") statsSince = saved.since;
       }
+
       if (statsSince === null) statsSince = new Date().toISOString();
     } catch {
       /* 首次运行没有统计文件，正常 */
@@ -961,8 +1119,9 @@ export function apply(ctx, config) {
   }
 
   /* 计数：只观察，不影响执行。口径是 MCP 按服务器聚合（mcp:<serverName>）、技能按技能名聚合（skill:<name>），
-     不按工具拆分——README 与 PRODUCT.md 的措辞以此为准。 */
-  ctx.on("tools/result", (exec) => {
+     不按工具拆分——README 与 PRODUCT.md 的措辞以此为准。
+     第二个参数 result 带成败：isError 由宿主判定，是官方认可的失败信号。 */
+  ctx.on("tools/result", (exec, result) => {
     try {
       const toolName = exec?.name;
       if (typeof toolName !== "string") return;
@@ -976,10 +1135,11 @@ export function apply(ctx, config) {
         if (typeof skillName === "string") key = `skill:${skillName}`;
       }
       if (!key) return;
-      const current = counters.get(key) ?? { count: 0, lastAt: 0 };
-      current.count += 1;
-      current.lastAt = Date.now();
-      counters.set(key, current);
+
+      const failed = Boolean(result?.isError);
+      bumpCounter(key, !failed);
+      if (failed) recordError(key, result);
+
       if (statsSince === null) statsSince = new Date().toISOString();
       scheduleSave();
     } catch {
@@ -1326,15 +1486,36 @@ export function apply(ctx, config) {
         const rows = new Map();
         for (const [key, value] of counters.entries()) {
           const [kind, ...rest] = key.split(":");
-          rows.set(key, { kind, name: rest.join(":"), count: value.count, lastAt: value.lastAt });
+          rows.set(key, {
+            key,
+            kind,
+            name: rest.join(":"),
+            ok: value.ok,
+            fails: value.fail,
+            count: value.ok + value.fail,
+            lastAt: value.lastAt,
+            lastFailAt: value.lastFailAt ?? 0,
+            errors: errorStats.get(key) ?? {},
+          });
         }
 
         /* 计数只记录“发生过的事”。把已知的技能和服务器补成 0，
            页面才能回答「这东西到底有没有被用过」，而不是只列出用过的。 */
+        const emptyRow = (key, kind, name) => ({
+          key,
+          kind,
+          name,
+          ok: 0,
+          fails: 0,
+          count: 0,
+          lastAt: 0,
+          lastFailAt: 0,
+          errors: {},
+        });
         try {
           for (const skill of await scanSkills()) {
             const key = `skill:${skill.name}`;
-            if (!rows.has(key)) rows.set(key, { kind: "skill", name: skill.name, count: 0, lastAt: 0 });
+            if (!rows.has(key)) rows.set(key, emptyRow(key, "skill", skill.name));
           }
         } catch {
           /* 扫描失败不影响已有计数 */
@@ -1342,7 +1523,7 @@ export function apply(ctx, config) {
         try {
           for (const server of await readServers(modelFile, dataFile)) {
             const key = `mcp:${server.serverName}`;
-            if (!rows.has(key)) rows.set(key, { kind: "mcp", name: server.serverName, count: 0, lastAt: 0 });
+            if (!rows.has(key)) rows.set(key, emptyRow(key, "mcp", server.serverName));
           }
         } catch {
           /* ignore */
@@ -1601,3 +1782,4 @@ export function apply(ctx, config) {
   });
 }
 
+export { classifyError, sanitizeSample };

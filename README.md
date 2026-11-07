@@ -55,6 +55,8 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 
 Per-server and per-skill call counts, accumulated from the day you install. Answers "is this server earning its context?" without digging through session logs.
 
+MCP failures are counted and classified too — network/timeout, authentication, bad parameters, server error, cancelled, unknown. Select a server and the chart switches from "errors by server" to "errors by category", each with a one-line explanation plus the raw code and a sanitized sample.
+
 ### Agent tool
 
 The plugin also registers an `mcp_service` tool, so you can say *"install the filesystem MCP"* in a conversation instead of switching pages.

@@ -20,6 +20,7 @@ let entriesUsed = false;
 let activeSkillOverride = null;
 let expandServerId = null;
 let openToolOverride = null;
+let selectStatsKey = null;
 let nullSeen = 0;
 
 const useState = (initial) => {
@@ -33,6 +34,7 @@ const useState = (initial) => {
     if (activeSkillOverride && forceTab === "skill" && nullSeen === 2) return [activeSkillOverride, noop];
     if (expandServerId && forceTab === "mcp" && nullSeen === 4) return [expandServerId, noop];
     if (openToolOverride && forceTab === "mcp" && nullSeen === 5) return [openToolOverride, noop];
+    if (selectStatsKey && forceTab === "stats" && nullSeen === 1) return [selectStatsKey, noop];
     return [null, noop];
   }
   if (
@@ -197,10 +199,20 @@ const toolEntries = {
 
 /* 统计页：0 次的行必须也在，否则用户分不清「没被用过」和「不支持统计」 */
 const statsRows = [
-  { kind: "mcp", name: "tavily", count: 12, lastAt: 0 },
-  { kind: "mcp", name: "github", count: 0, lastAt: 0 },
-  { kind: "skill", name: "banner-design", count: 3, lastAt: 0 },
-  { kind: "skill", name: "brand", count: 0, lastAt: 0 },
+  {
+    key: "mcp:tavily",
+    kind: "mcp",
+    name: "tavily",
+    ok: 12,
+    fails: 1,
+    count: 13,
+    lastAt: 0,
+    lastFailAt: 0,
+    errors: { NETWORK: { count: 1, lastAt: 0, codes: { ENOTFOUND: 1 }, sample: "fetch failed: getaddrinfo ENOTFOUND" } },
+  },
+  { key: "mcp:github", kind: "mcp", name: "github", ok: 0, fails: 0, count: 0, lastAt: 0, lastFailAt: 0, errors: {} },
+  { key: "skill:banner-design", kind: "skill", name: "banner-design", ok: 3, fails: 0, count: 3, lastAt: 0, lastFailAt: 0, errors: {} },
+  { key: "skill:brand", kind: "skill", name: "brand", ok: 0, fails: 0, count: 0, lastAt: 0, lastFailAt: 0, errors: {} },
 ];
 
 const cases = [
@@ -222,6 +234,26 @@ const cases = [
     stats: statsRows,
     expectTexts: ["MCP 工具调用", "技能调用", "banner-design", "brand", "已用 1 / 2"],
   },
+  {
+    label: "stats (错误：未选中按服务器)",
+    tab: "stats",
+    stats: statsRows,
+    expectTexts: ["MCP 调用错误", "全部服务器", "共 1 次"],
+  },
+  {
+    label: "stats (错误：选中 tavily 显示分类)",
+    tab: "stats",
+    stats: statsRows,
+    selectStats: "mcp:tavily",
+    expectTexts: ["网络 / 超时", "DNS 解析失败", "ENOTFOUND"],
+  },
+  {
+    label: "stats (错误：零调用不可判健康)",
+    tab: "stats",
+    stats: statsRows,
+    selectStats: "mcp:github",
+    expectTexts: ["没有调用记录"],
+  },
   /* 语言：client.js 在 apply 时就把语言定下来，所以中英文各 apply 一次 */
   { label: "zh 页面副标题", tab: "mcp", locale: "zh", expectText: "MCP 服务器与技能的统一入口" },
   { label: "en 页面副标题", tab: "mcp", locale: "en", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
@@ -240,6 +272,7 @@ for (const item of cases) {
   activeSkillOverride = item.drawer ?? null;
   expandServerId = item.expand ?? null;
   openToolOverride = item.openTool ?? null;
+  selectStatsKey = item.selectStats ?? null;
   nullSeen = 0;
   try {
     const tree = render(mainComponent({}));
