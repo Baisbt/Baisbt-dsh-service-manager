@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 离线渲染校验：用最小 React 替身在 Node 里跑一遍 Client，确认三页 + 抽屉都能构建出树。
  * 只做结构校验，不涉及样式与交互。用 node test/render-smoke.mjs 运行。
  */
