@@ -1322,13 +1322,39 @@ export function apply(ctx, config) {
     methods: ["GET"],
     requestBody: "buffered",
     fetch: async () => {
-      const rows = [...counters.entries()]
-        .map(([key, value]) => {
+      try {
+        const rows = new Map();
+        for (const [key, value] of counters.entries()) {
           const [kind, ...rest] = key.split(":");
-          return { kind, name: rest.join(":"), count: value.count, lastAt: value.lastAt };
-        })
-        .sort((a, b) => b.count - a.count);
-      return json({ ok: true, since: statsSince, rows });
+          rows.set(key, { kind, name: rest.join(":"), count: value.count, lastAt: value.lastAt });
+        }
+
+        /* 计数只记录“发生过的事”。把已知的技能和服务器补成 0，
+           页面才能回答「这东西到底有没有被用过」，而不是只列出用过的。 */
+        try {
+          for (const skill of await scanSkills()) {
+            const key = `skill:${skill.name}`;
+            if (!rows.has(key)) rows.set(key, { kind: "skill", name: skill.name, count: 0, lastAt: 0 });
+          }
+        } catch {
+          /* 扫描失败不影响已有计数 */
+        }
+        try {
+          for (const server of await readServers(modelFile, dataFile)) {
+            const key = `mcp:${server.serverName}`;
+            if (!rows.has(key)) rows.set(key, { kind: "mcp", name: server.serverName, count: 0, lastAt: 0 });
+          }
+        } catch {
+          /* ignore */
+        }
+
+        const merged = [...rows.values()].sort(
+          (a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name))
+        );
+        return json({ ok: true, since: statsSince, rows: merged });
+      } catch (error) {
+        return fail(error);
+      }
     },
   });
 

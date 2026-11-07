@@ -195,6 +195,14 @@ const toolEntries = {
   "mcp-tavily:tavily_search#query": { zh: "搜索关键词", engine: "model", model: "agent2api/ds" },
 };
 
+/* 统计页：0 次的行必须也在，否则用户分不清「没被用过」和「不支持统计」 */
+const statsRows = [
+  { kind: "mcp", name: "tavily", count: 12, lastAt: 0 },
+  { kind: "mcp", name: "github", count: 0, lastAt: 0 },
+  { kind: "skill", name: "banner-design", count: 3, lastAt: 0 },
+  { kind: "skill", name: "brand", count: 0, lastAt: 0 },
+];
+
 const cases = [
   { label: "skill (无译文)", tab: "skill" },
   { label: "skill (模型/机翻/未译出)", tab: "skill", entries: skillEntries },
@@ -208,6 +216,12 @@ const cases = [
     openTool: { server: servers[0], tool: tools[0] },
   },
   { label: "stats", tab: "stats" },
+  {
+    label: "stats (含 0 计数)",
+    tab: "stats",
+    stats: statsRows,
+    expectTexts: ["MCP 工具调用", "技能调用", "banner-design", "brand", "已用 1 / 2"],
+  },
   /* 语言：client.js 在 apply 时就把语言定下来，所以中英文各 apply 一次 */
   { label: "zh 页面副标题", tab: "mcp", locale: "zh", expectText: "MCP 服务器与技能的统一入口" },
   { label: "en 页面副标题", tab: "mcp", locale: "en", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
@@ -219,6 +233,7 @@ const cases = [
 let failures = 0;
 for (const item of cases) {
   boot(item.locale ?? "zh");
+  store = { ...store, stats: item.stats ?? [] };
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
@@ -260,6 +275,7 @@ for (const item of cases) {
       checks.push(["参数区标题", text.includes(zh ? "参数" : "Parameters")]);
       checks.push(["参数说明已翻译", text.includes("搜索关键词")]);
     }
+    if (item.expectTexts) for (const value of item.expectTexts) checks.push([`含「${value}」`, text.includes(value)]);
     if (item.expectText) checks.push([`含「${item.expectText}」`, text.includes(item.expectText)]);
     if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
     if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);

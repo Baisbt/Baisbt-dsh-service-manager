@@ -175,6 +175,10 @@ window.__ModuleLoader__.load({
         skillcalls: "技能调用",
         statSince: "统计自",
         statSinceUnknown: "统计从插件安装当天开始累计",
+        statRule: "技能计数来自模型主动加载 SKILL 的次数；斜杠命令不经过工具，不计入。",
+        statUsed: "已用 {n} / {m}",
+        statNoServers: "还没有配置 MCP 服务器",
+        statNoSkills: "还没有发现技能",
         openFile: "打开配置文件",
         openFolder: "打开配置目录",
         externalNote: "由用户手工维护，本页仅展示",
@@ -284,6 +288,10 @@ window.__ModuleLoader__.load({
         skillcalls: "Skill invocations",
         statSince: "Counting since",
         statSinceUnknown: "Counting starts the day the plugin was installed",
+        statRule: "Skill counts come from model-initiated SKILL loads. Slash commands bypass the tool and are not counted.",
+        statUsed: "{n} of {m} used",
+        statNoServers: "No MCP servers configured",
+        statNoSkills: "No skills found",
         openFile: "Open config file",
         openFolder: "Open config folder",
         externalNote: "Maintained by hand; read-only here",
@@ -612,6 +620,12 @@ window.__ModuleLoader__.load({
 .smBarFill{height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary);transition:width .3s cubic-bezier(.2,.8,.2,1)}
 .smBarValue{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;
   font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
+.smStatsMeta{display:flex;flex-direction:column;gap:3px;margin-top:-4px}
+.smStatsSince{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.smStatsRule{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);max-width:72ch}
+.smSectionMeta{font-size:11px;line-height:14px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
+.smBar[data-idle=true] .smBarName{color:var(--dsw-alias-label-tertiary)}
+.smBar[data-idle=true] .smBarValue{color:var(--dsw-alias-label-caption)}
 .smMenuWrap{position:relative}
 .smMenu{position:absolute;top:calc(100% + 6px);right:0;min-width:196px;z-index:40;padding:4px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l4);box-shadow:var(--dsw-elevation-prominent);
@@ -2280,24 +2294,8 @@ window.__ModuleLoader__.load({
           h("p", { className: "smEmptyBody" }, t("statEmptyBody"))
         );
       }
-      const max = Math.max(...rows.map((r) => r.count), 1);
-      const group = (kind) => rows.filter((r) => r.kind === kind);
-      const renderBars = (list) =>
-        h(
-          "div",
-          { className: "smBars" },
-          list.map((row) =>
-            h(
-              "div",
-              { key: `${row.kind}:${row.name}`, className: "smBar" },
-              h("span", { className: "smBarName" }, row.name),
-              h("span", { className: "smBarTrack" }, h("span", { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } })),
-              h("span", { className: "smBarValue" }, String(row.count))
-            )
-          )
-        );
-      const mcp = group("mcp");
-      const skill = group("skill");
+
+      const max = Math.max(...rows.map((row) => row.count), 1);
       const since = state.statsSince
         ? new Date(state.statsSince).toLocaleDateString(dateLocale(), {
             year: "numeric",
@@ -2305,16 +2303,47 @@ window.__ModuleLoader__.load({
             day: "2-digit",
           })
         : null;
+
+      /* 0 次的行也要在：没有这一行，用户无法区分「没被用过」和「不支持统计」 */
+      const bar = (row) =>
+        h(
+          "div",
+          { key: `${row.kind}:${row.name}`, className: "smBar", "data-idle": row.count === 0 },
+          h("span", { className: "smBarName", title: row.name }, row.name),
+          h(
+            "span",
+            { className: "smBarTrack" },
+            h("span", { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } })
+          ),
+          h("span", { className: "smBarValue" }, String(row.count))
+        );
+
+      const section = (title, list, emptyText) => {
+        const used = list.filter((row) => row.count > 0).length;
+        return h(
+          "section",
+          { className: "smSection" },
+          h(
+            "div",
+            { className: "smSectionHead" },
+            h("h3", { className: "smSectionTitle" }, title),
+            list.length ? h("span", { className: "smSectionMeta" }, t("statUsed").replace("{n}", String(used)).replace("{m}", String(list.length))) : null
+          ),
+          list.length ? h("div", { className: "smBars" }, list.map(bar)) : h("div", { className: "smHint" }, emptyText)
+        );
+      };
+
       return h(
         React.Fragment,
         null,
         h(
           "div",
-          { className: "smHint", style: { marginTop: -4 } },
-          since ? `${t("statSince")} ${since}` : t("statSinceUnknown")
+          { className: "smStatsMeta" },
+          h("span", { className: "smStatsSince" }, since ? `${t("statSince")} ${since}` : t("statSinceUnknown")),
+          h("span", { className: "smStatsRule" }, t("statRule"))
         ),
-        mcp.length ? h("section", { className: "smSection" }, h("div", { className: "smSectionHead" }, h("h3", { className: "smSectionTitle" }, t("mcpcalls"))), renderBars(mcp)) : null,
-        skill.length ? h("section", { className: "smSection" }, h("div", { className: "smSectionHead" }, h("h3", { className: "smSectionTitle" }, t("skillcalls"))), renderBars(skill)) : null
+        section(t("mcpcalls"), rows.filter((row) => row.kind === "mcp"), t("statNoServers")),
+        section(t("skillcalls"), rows.filter((row) => row.kind === "skill"), t("statNoSkills"))
       );
     }
 
