@@ -3,7 +3,7 @@
  * 这两个函数决定了 stats.json 里存什么，错一次要修很久的历史数据。
  * 用 node test/stats-classify.mjs 运行。
  */
-import { classifyError, sanitizeSample } from "../index.js";
+import { classifyError, sanitizeSample, pickErrorCode } from "../index.js";
 
 let failures = 0;
 
@@ -30,6 +30,17 @@ check("server_error → 服务端", classify("server_error", "upstream failed"),
 check("aborted → 取消", classify("aborted", "the operation was aborted"), "CANCELLED");
 check("无法归类的 → 未知", classify("WEIRD_THING", "something odd"), "UNKNOWN");
 check("空 result 不抛错", classifyError(undefined), "UNKNOWN");
+
+/* ---------- 原始错误码 ---------- */
+check("有 info.code 直接用", pickErrorCode({ error: { info: { code: "ENOTFOUND" }, message: "x" } }), "ENOTFOUND");
+check(
+  "info 缺失时从 pydantic 文案取",
+  pickErrorCode({ error: { message: "1 validation error [type=int_parsing, input_value='twelve']" } }),
+  "int_parsing"
+);
+check("info 缺失时从 errno 取", pickErrorCode({ error: { message: "connect ECONNREFUSED 1.2.3.4:443" } }), "ECONNREFUSED");
+check("都取不到时记 unknown", pickErrorCode({ error: { message: "something odd happened" } }), "unknown");
+check("空 result 不抛错", pickErrorCode(undefined), "unknown");
 
 /* ---------- 样本脱敏 ---------- */
 const url = sanitizeSample("fetch failed: https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-dev-ABC123&x=1");

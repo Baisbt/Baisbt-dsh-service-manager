@@ -816,6 +816,23 @@ function sanitizeSample(text) {
   return value.slice(0, SAMPLE_MAX);
 }
 
+/**
+ * 原始错误码。优先取宿主的 info.code；MCP 服务端抛的校验错误常常没有 info，
+ * 就从文案里捞（pydantic 的 `type=int_parsing`、Node 的 `ECONNREFUSED`）。
+ */
+function pickErrorCode(result) {
+  const info = result?.error?.info ?? {};
+  const direct = String(info.code ?? info.name ?? "").trim();
+  if (direct) return direct.slice(0, 40);
+
+  const message = String(result?.error?.message ?? "");
+  const typed = /type=([A-Za-z0-9_]+)/.exec(message);
+  if (typed) return typed[1].slice(0, 40);
+  const errno = /\b(E[A-Z][A-Z0-9_]{2,})\b/.exec(message);
+  if (errno) return errno[1].slice(0, 40);
+  return "unknown";
+}
+
 /* ------------------------------------------------------------------ 插件 */
 
 export function apply(ctx, config) {
@@ -920,8 +937,7 @@ export function apply(ctx, config) {
     entry.count += 1;
     entry.lastAt = Date.now();
 
-    const info = result?.error?.info ?? {};
-    const code = String(info.code ?? info.name ?? "").slice(0, 40) || "unknown";
+    const code = pickErrorCode(result);
     entry.codes[code] = (entry.codes[code] ?? 0) + 1;
     if (Object.keys(entry.codes).length > MAX_CODES_PER_CATEGORY) {
       entry.codes = Object.fromEntries(
@@ -1782,4 +1798,4 @@ export function apply(ctx, config) {
   });
 }
 
-export { classifyError, sanitizeSample };
+export { classifyError, sanitizeSample, pickErrorCode };
