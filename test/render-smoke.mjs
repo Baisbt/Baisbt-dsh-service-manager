@@ -316,12 +316,63 @@ const cases = [
   { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh", drawer: skills[0], expectAria: "关闭" },
   { label: "en 抽屉关闭标签", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Close" },
   { label: "en 统计页", tab: "stats", locale: "en", expectText: "No calls recorded yet" },
+  /* 版本自述：三种读数（磁盘 / 进程 / 页面）决定横幅 */
+  {
+    label: "版本横幅：进程落后于磁盘 → 提示重启",
+    tab: "mcp",
+    version: {
+      ok: true,
+      stale: true,
+      unknown: false,
+      running: { version: "0.7.0", startedAt: "2026-11-07T14:40:00.000Z", pid: 4321 },
+      disk: { version: "0.8.0", mtime: "2026-11-07T14:55:00.000Z" },
+      build: { version: "0.8.0", commit: "", built: "" },
+      dir: "C:/pkg",
+      profileDir: "C:/profile",
+    },
+    expectTexts: ["重启 DSH 后生效", "0.8.0", "0.7.0", "启动于"],
+    expectClass: "smBannerWarn",
+  },
+  {
+    label: "版本横幅：一致时不打扰",
+    tab: "mcp",
+    version: {
+      ok: true,
+      stale: false,
+      unknown: false,
+      running: { version: "0.8.0", startedAt: "2026-11-07T14:40:00.000Z", pid: 4321 },
+      disk: { version: "0.8.0", mtime: "2026-11-07T14:55:00.000Z" },
+      build: { version: "0.8.0", commit: "", built: "" },
+    },
+    rejectText: "重启 DSH",
+    rejectClass: "smBannerWarn",
+  },
+  {
+    label: "版本横幅：页面是旧构建 → 提示刷新",
+    tab: "mcp",
+    version: {
+      ok: true,
+      stale: false,
+      unknown: false,
+      running: { version: "0.8.0", startedAt: "2026-11-07T14:40:00.000Z", pid: 4321 },
+      disk: { version: "0.8.0", mtime: "2026-11-07T14:55:00.000Z" },
+      build: { version: "0.8.0", commit: "deadbee", built: "" },
+    },
+    expectText: "页面里是旧版界面",
+    expectClass: "smBannerWarn",
+  },
+  {
+    label: "版本横幅：读不到磁盘版本 → 只说读不到",
+    tab: "mcp",
+    version: { ok: true, stale: false, unknown: true, running: { version: "0.8.0" }, disk: null, build: {} },
+    expectText: "无法判断是否需要重启",
+  },
 ];
 
 let failures = 0;
 for (const item of cases) {
   boot(item.locale ?? "zh");
-  store = { ...store, stats: item.stats ?? [] };
+  store = { ...store, stats: item.stats ?? [], version: item.version ?? null };
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
@@ -369,6 +420,7 @@ for (const item of cases) {
     if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
     if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);
     for (const name of [].concat(item.expectClass ?? [])) checks.push([`含节点 ${name}`, countClass(tree, name) > 0]);
+    for (const name of [].concat(item.rejectClass ?? [])) checks.push([`不含节点 ${name}`, countClass(tree, name) === 0]);
     const failed = checks.filter(([, ok]) => !ok);
     failures += failed.length;
     console.log(

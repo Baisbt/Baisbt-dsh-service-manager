@@ -228,6 +228,16 @@ cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
 
 刷新页面（`Ctrl+R`）。Host 半区装完立即生效，前端 bundle 需要重新加载一次。
 
+### 改完插件没生效，页面还是旧版
+
+看页面顶部的黄色提示条，它会直接说清三个读数：磁盘上是哪一版、Host 进程跑的是哪一版、页面里这份 JS 是不是旧构建。
+
+- 「插件已更新，重启 DSH 后生效」→ `client.js` 每次刷新页面都从磁盘重读，但 `index.js` 只在进程启动时加载一次，必须重启一次 DSH。
+- 「页面里是旧版界面」→ 刷新页面即可。
+- 没有提示条 → 三个读数一致，什么都不用做。
+
+这三个数字来自 `GET /api/service-manager/version`，只读、无副作用，可以随便请求。之前排查这类问题只能对着进程启动时间和文件修改时间猜，现在不用了。
+
 ### GitHub 安装卡很久
 
 日志里出现 `HEAD https://github.com/... ETIMEDOUT` 是网络抖动，pnpm 会自动重试。首次安装实测一到两分钟。
@@ -249,11 +259,22 @@ cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
 node test/render-smoke.mjs
 ```
 
+发布前跑一次构建戳，把版本、commit、构建时间写进两半区的 `BUILD` 常量：
+
+```bash
+node scripts/stamp.mjs          # 写入（然后一起提交）
+node scripts/stamp.mjs --check  # 只校验版本是否一致
+```
+
+它的作用是让页面能自己判断「页面里这份 JS 是不是旧构建」，不用人肉比对文件时间。
+
 README 里的截图不是手截的，是用真实组件、真实 CSS、真实设计 token 在无头浏览器里渲染的，`/api/*` 打了桩，示例数据在 `docs/preview/fixtures.json`：
 
 ```bash
-node docs/preview/serve.mjs   # 然后打开 docs/preview/index.html
+node docs/preview/serve.mjs   # 然后打开 http://127.0.0.1:4173/docs/preview/
 ```
+
+版本提示条有四种状态可以看：`?version=ok`（默认，无提示）、`?version=stale`（需要重启）、`?version=page`（页面是旧构建）、`?version=unknown`（读不到磁盘版本）。
 
 这个预览环境也是改 UI 最快的路子——不用安装任何东西。
 

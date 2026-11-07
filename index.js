@@ -8,7 +8,7 @@
  *  - 统计工具调用次数（内存，v1 不落盘）
  */
 import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -22,6 +22,35 @@ const MCP_PLUGIN = "@deepseek-ai/dsh-mcp-client";
 const INCLUDE_ID = "service-manager-mcp";
 const MCP_TOOL_NAME = "mcp_service";
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+
+/* ------------------------------------------------------------ 版本与构建戳 */
+
+/**
+ * 「磁盘上是哪一版」和「进程里跑的是哪一版」是两件事，历史上最容易误判：
+ *  - LOADED 在本模块被 import 的那一刻读一次，代表这个 Host 进程加载的版本
+ *  - /version 路由被调用时再读一次磁盘，代表 pnpm 刚刚换上来的版本
+ * 两者不同 = 插件已更新但进程没重启，页面照着这条事实说清楚，不再靠猜。
+ *
+ * BUILD 由 scripts/stamp.mjs 写入，只用来给页面判断「页面里这份 JS 是不是旧构建」；
+ * 权威版本永远是 package.json 的 version。
+ */
+const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
+const BUILD = { version: "0.8.0", commit: "57f8998", built: "2026-11-07T14:30:17.014Z" };
+
+function readSelfVersion() {
+  try {
+    const file = path.join(PLUGIN_DIR, "package.json");
+    const info = statSync(file);
+    const data = JSON.parse(readFileSync(file, "utf8"));
+    const version = typeof data.version === "string" && data.version !== "" ? data.version : null;
+    return { version, mtimeMs: info.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+const LOADED = readSelfVersion();
+const PROCESS_STARTED_AT = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
 
 /* ------------------------------------------------------------------ 路径 */
 
@@ -1818,6 +1847,41 @@ export function apply(ctx, config) {
     methods: ["GET"],
     requestBody: "buffered",
     fetch: async () => json({ ok: true, profileDir, file: dataFile }),
+  });
+
+  /**
+   * 版本自述。页面据此自己判断「要不要重启」，而不是让用户凭感觉猜。
+   * 只读、无副作用，因此可以随便轮询。
+   */
+  ctx.connection.fetch.register({
+    path: "/api/service-manager/version",
+    methods: ["GET"],
+    requestBody: "buffered",
+    fetch: async () => {
+      const disk = readSelfVersion();
+      const runningVersion = LOADED?.version ?? null;
+      const diskVersion = disk?.version ?? null;
+      return json({
+        ok: true,
+        /* 磁盘与进程不一致 → 必须重启才生效 */
+        stale: Boolean(runningVersion && diskVersion && runningVersion !== diskVersion),
+        /* 读不到 package.json → 不下结论，只说读不到 */
+        unknown: diskVersion === null,
+        running: {
+          version: runningVersion,
+          startedAt: PROCESS_STARTED_AT,
+          pid: process.pid,
+          node: process.versions?.node ?? null,
+        },
+        disk:
+          diskVersion === null
+            ? null
+            : { version: diskVersion, mtime: new Date(disk.mtimeMs).toISOString() },
+        build: BUILD,
+        dir: PLUGIN_DIR,
+        profileDir,
+      });
+    },
   });
 }
 

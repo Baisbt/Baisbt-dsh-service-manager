@@ -5,6 +5,13 @@
     <title>服务管理页 · 预览</title>
     <link rel="stylesheet" href="tokens.css" />
     <style>
+      /* 宿主页面有全局 border-box 基线，这里必须补齐：
+         少了它 .smInner 会比视口宽出一个内边距，右侧内容被裁掉（预览里看得见、真机上看不见） */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
       html,
       body {
         margin: 0;

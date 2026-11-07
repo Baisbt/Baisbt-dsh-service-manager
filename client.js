@@ -16,6 +16,12 @@ window.__ModuleLoader__.load({
     const NS = "service-manager";
     const PANEL_ID = "service-manager";
 
+    /**
+     * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
+     * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
+     */
+    const BUILD = { version: "0.8.0", commit: "57f8998", built: "2026-11-07T14:30:17.014Z" };
+
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
       {
@@ -96,6 +102,15 @@ window.__ModuleLoader__.load({
         loading: "正在读取…",
         errorTitle: "读取失败",
         retry: "重试",
+        verStaleTitle: "插件已更新，重启 DSH 后生效",
+        verStaleBody: "当前页面来自磁盘上的新版本，但 Host 进程还在跑旧版本。重启一次 DSH 即可。",
+        verPageTitle: "页面里是旧版界面",
+        verPageBody: "刷新页面即可载入新版本；刷新后仍提示说明构建戳没更新。",
+        verUnknown: "读不到磁盘上的 package.json，无法判断是否需要重启。",
+        verDisk: "磁盘",
+        verRunning: "进程",
+        verStarted: "启动于",
+        verDismiss: "忽略",
         edit: "编辑",
         remove: "删除",
         enable: "启用",
@@ -239,6 +254,15 @@ window.__ModuleLoader__.load({
         loading: "Loading…",
         errorTitle: "Could not load",
         retry: "Retry",
+        verStaleTitle: "Plugin updated — restart DSH to apply",
+        verStaleBody: "This page comes from the newer copy on disk, but the Host process still runs the old one. Restart DSH once.",
+        verPageTitle: "This page renders an older build",
+        verPageBody: "Reload the page to pick up the new version; if the notice survives a reload, the build stamp was not updated.",
+        verUnknown: "Could not read package.json on disk, so the restart check is unavailable.",
+        verDisk: "disk",
+        verRunning: "process",
+        verStarted: "started",
+        verDismiss: "Dismiss",
         edit: "Edit",
         remove: "Remove",
         enable: "Enable",
@@ -646,6 +670,14 @@ window.__ModuleLoader__.load({
 .smBannerText{display:flex;flex-direction:column;gap:2px;min-width:0}
 .smBannerTitle{font-weight:500}
 .smBannerBody{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;word-break:break-word}
+.smBannerWarn{background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent)}
+.smBannerMeta{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:2px;font-size:11px;line-height:16px;
+  color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
+.smBannerClose{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;
+  border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;
+  transition:background .12s ease,color .12s ease}
+.smBannerClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.smBannerClose:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
 .smSkeleton{height:52px;border-bottom:1px solid var(--dsw-alias-border-l2);
   background:linear-gradient(90deg,transparent,var(--dsw-alias-bg-skeleton),transparent);background-size:200% 100%;animation:smShimmer 1.4s ease-in-out infinite}
 @keyframes smShimmer{0%{background-position:120% 0}100%{background-position:-20% 0}}
@@ -878,6 +910,14 @@ window.__ModuleLoader__.load({
       const payload = await response.json();
       if (payload && payload.ok === false) throw new Error(payload.error || "请求失败");
       return payload;
+    };
+
+    /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
+    const shortClock = (iso) => {
+      const date = iso ? new Date(iso) : null;
+      if (!date || Number.isNaN(date.getTime())) return "";
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     };
 
     const endpointOf = (server) => {
@@ -2793,6 +2833,23 @@ window.__ModuleLoader__.load({
 
     function Page({ t, tab, setTab, state, reload, notify }) {
       const [menuOpen, setMenuOpen] = useState(false);
+      const [verHidden, setVerHidden] = useState(false);
+
+      /**
+       * 三个版本读数，各自独立：
+       *  disk    磁盘上现在这版（Host 收到请求时才读）
+       *  running Host 进程启动时加载的那版
+       *  page    这份 JS 的构建戳
+       * 前两者不同 = 必须重启；page 与 Host 不同 = 页面里是旧构建，刷新即可。
+       */
+      const version = state.version ?? null;
+      const diskVersion = version?.disk?.version ?? null;
+      const runningVersion = version?.running?.version ?? null;
+      const hostCommit = version?.build?.commit ?? "";
+      const hostStale = version?.stale === true;
+      const pageStale = !hostStale && Boolean(hostCommit && BUILD.commit && hostCommit !== BUILD.commit);
+      const versionUnknown = version?.unknown === true;
+      const showVersion = !verHidden && Boolean(version) && (hostStale || pageStale || versionUnknown);
 
       useEffect(() => {
         if (!menuOpen) return;
@@ -2817,6 +2874,49 @@ window.__ModuleLoader__.load({
           notify(err.message);
         }
       };
+
+      const versionBanner = !showVersion
+        ? null
+        : h(
+            "div",
+            { className: "smBanner smBannerWarn", role: "status" },
+            h(
+              "div",
+              { className: "smBannerText" },
+              hostStale
+                ? h("span", { className: "smBannerTitle" }, t("verStaleTitle"))
+                : pageStale
+                  ? h("span", { className: "smBannerTitle" }, t("verPageTitle"))
+                  : null,
+              h(
+                "span",
+                { className: "smBannerBody" },
+                hostStale ? t("verStaleBody") : pageStale ? t("verPageBody") : t("verUnknown")
+              ),
+              hostStale
+                ? h(
+                    "span",
+                    { className: "smBannerMeta" },
+                    diskVersion ? h("span", null, `${t("verDisk")} ${diskVersion}`) : null,
+                    runningVersion ? h("span", null, `${t("verRunning")} ${runningVersion}`) : null,
+                    version?.running?.startedAt
+                      ? h("span", null, `${t("verStarted")} ${shortClock(version.running.startedAt)}`)
+                      : null
+                  )
+                : null
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                className: "smBannerClose",
+                "aria-label": t("verDismiss"),
+                title: t("verDismiss"),
+                onClick: () => setVerHidden(true),
+              },
+              "×"
+            )
+          );
 
       return h(
         React.Fragment,
@@ -2913,6 +3013,7 @@ window.__ModuleLoader__.load({
                 )
               )
             ),
+            versionBanner,
             state.error
               ? h(
                   "div",
@@ -2960,6 +3061,7 @@ window.__ModuleLoader__.load({
           servers: null,
           skills: null,
           stats: null,
+          version: null,
         };
         const listeners = new Set();
         const emit = () => listeners.forEach((fn) => fn());
@@ -2968,8 +3070,22 @@ window.__ModuleLoader__.load({
           emit();
         };
 
+        /**
+         * 读一次版本自述。旧版 Host 没有这条路由，404 是正常情况：
+         * 失败就把结果清成 null，横幅自己消失，不打扰任何人。
+         */
+        const loadVersion = async () => {
+          try {
+            const payload = await request("/api/service-manager/version");
+            set({ version: payload });
+          } catch {
+            set({ version: null });
+          }
+        };
+
         const load = async (scope) => {
           set({ loading: true, error: "" });
+          void loadVersion();
           try {
             if (scope === "mcp" || scope === "all") {
               const payload = await request("/api/service-manager/mcp");

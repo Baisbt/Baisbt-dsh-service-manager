@@ -1,12 +1,17 @@
 /**
  * 预览用静态服务器（仅用于看 docs/preview/index.html，不参与插件运行）。
- *   node docs/preview/serve.mjs
+ *   node docs/preview/serve.mjs   → http://127.0.0.1:4173/docs/preview/
+ *
+ * 根目录必须是仓库根：页面里的 `../../client.js` 指向仓库根的 client.js，
+ * 只把 docs/preview 当根会让它 404（页面白屏，且只报一条网络错误）。
  */
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const root = fileURLToPath(new URL("../..", import.meta.url));
+const PAGE = "/docs/preview/";
 const port = Number(process.env.PORT ?? 4173);
 
 const types = {
@@ -20,7 +25,14 @@ const types = {
 
 createServer(async (request, response) => {
   const pathname = decodeURIComponent((request.url ?? "/").split("?")[0]);
-  const relative = pathname === "/" ? "index.html" : normalize(pathname).replace(/^[\\/]+/, "");
+  const query = (request.url ?? "").includes("?") ? (request.url ?? "").slice((request.url ?? "").indexOf("?")) : "";
+  if (pathname === "/" || pathname === "/docs/preview") {
+    response.writeHead(302, { location: PAGE + query });
+    response.end();
+    return;
+  }
+  let relative = normalize(pathname).replace(/^[\\/]+/, "");
+  if (pathname.endsWith("/")) relative = normalize(relative + "index.html");
   const file = join(root, relative);
   try {
     if (!(await stat(file)).isFile()) throw new Error("not a file");
@@ -32,5 +44,5 @@ createServer(async (request, response) => {
     response.end("not found");
   }
 }).listen(port, "127.0.0.1", () => {
-  console.log(`预览: http://127.0.0.1:${port}`);
+  console.log(`预览: http://127.0.0.1:${port}${PAGE}`);
 });

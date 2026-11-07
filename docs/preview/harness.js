@@ -106,6 +106,25 @@
 
   const legacy = {};
 
+  /* 版本自述：默认「磁盘与进程一致」，可用 ?version=stale|page|unknown 看三种状态 */
+  const scenario = new URLSearchParams(location.search).get("version") ?? "ok";
+  const version = {
+    ok: true,
+    stale: scenario === "stale",
+    unknown: scenario === "unknown",
+    running: {
+      version: scenario === "stale" ? "0.7.0" : "0.8.0",
+      startedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString(),
+      pid: 4321,
+      node: "24.19.0",
+    },
+    disk: scenario === "unknown" ? null : { version: "0.8.0", mtime: new Date().toISOString() },
+    /* page 场景：故意给一个和 client.js 构建戳不同的 commit */
+    build: { version: "0.8.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
+    dir: "C:/profile/node_modules/dsh-service-manager",
+    profileDir: "C:/profile",
+  };
+
   window.fetch = async function (input, init) {
     const url = typeof input === "string" ? input : input.url;
     const clean = url.split("?")[0];
@@ -123,6 +142,10 @@
     }
     if (path === "/api/service-manager/stats" && method === "GET") {
       return json({ ok: true, rows: stats, since: "2026-11-06" });
+    }
+    if (path === "/api/service-manager/version" && method === "GET") {
+      /* page 场景：build.commit 与 client.js 里的构建戳不同，触发「页面是旧构建」 */
+      return json(version);
     }
     if (path === "/api/service-manager/skills/content") {
       return json({ ok: true, meta: { name: "banner-design" }, body: skillBody });
@@ -164,7 +187,16 @@
         return () => {};
       },
     },
-    get: (name) => (name === "locale" ? { current: "zh-CN", register() {} } : undefined),
+    /* 宿主 locale 服务的真实形状是 getLocale().active；'current' 那个字段不存在 */
+    get: (name) =>
+      name === "locale"
+        ? {
+            getLocale: () => ({ active: "zh" }),
+            register() {},
+            bind() {},
+            subscribe: () => () => {},
+          }
+        : undefined,
   };
   mod.apply(ctx);
 

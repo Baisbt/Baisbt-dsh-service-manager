@@ -228,6 +228,16 @@ Not sure which one you have? `dir "<profile>\node_modules" | findstr dsh-service
 
 Refresh the page (`Ctrl+R`). The Host half applies as soon as it installs; the browser bundle needs one reload.
 
+### I updated the plugin and nothing changed
+
+Look at the yellow notice at the top of the page. It states three readings: which version is on disk, which version the Host process loaded, and whether the JavaScript in the page is an older build.
+
+- "Plugin updated — restart DSH to apply" → `client.js` is re-read from disk on every page load, but `index.js` is loaded once per process, so the app has to restart.
+- "This page renders an older build" → reload the page.
+- No notice → all three agree; nothing to do.
+
+They come from `GET /api/service-manager/version`, which is read-only and idempotent. Diagnosing this used to mean guessing from process start times and file mtimes; it no longer does.
+
 ### Installing from GitHub takes forever
 
 `HEAD https://github.com/... ETIMEDOUT` in the log is network flakiness — pnpm retries by itself. A first install takes one to two minutes.
@@ -250,11 +260,22 @@ No build step: `index.js` and `client.js` are plain ESM that runs directly.
 node test/render-smoke.mjs
 ```
 
+Before releasing, stamp the build so both halves describe themselves:
+
+```bash
+node scripts/stamp.mjs          # write version + commit + build time into BUILD, then commit
+node scripts/stamp.mjs --check  # verify the version matches package.json
+```
+
+This is what lets the page tell whether it is rendering a stale bundle, instead of comparing file timestamps by hand.
+
 Screenshots in this README were not taken by hand. They were rendered in a headless browser from the real components, the real CSS and the real design tokens, with `/api/*` stubbed and fixture data in `docs/preview/fixtures.json`:
 
 ```bash
-node docs/preview/serve.mjs   # then open docs/preview/index.html
+node docs/preview/serve.mjs   # then open http://127.0.0.1:4173/docs/preview/
 ```
+
+The version notice has four states to look at: `?version=ok` (default, no notice), `?version=stale` (restart required), `?version=page` (stale page build), `?version=unknown` (package.json unreadable).
 
 That preview environment is also the fastest way to iterate on the UI without installing anything.
 
