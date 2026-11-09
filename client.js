@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.8.1", commit: "5f16b87", built: "2026-11-07T15:47:51.985Z" };
+    const BUILD = { version: "0.8.2", commit: "16941dc", built: "2026-11-09T00:53:26.756Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [

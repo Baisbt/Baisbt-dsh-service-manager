@@ -1,7 +1,20 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="3.25" y="4.25" width="17.5" height="5.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
-  <rect x="3.25" y="14.25" width="17.5" height="5.5" rx="2" stroke="currentColor" stroke-width="1.5"/>
-  <circle cx="7" cy="7" r="1" fill="currentColor"/>
-  <circle cx="7" cy="17" r="1" fill="currentColor"/>
-  <path d="M11 7h6.5M11 17h6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none">
+  <!--
+    自包含配色（不能用 currentColor）：插件列表把 icon.svg 当外链图片加载，
+    图片里没有继承色，currentColor 会解析成黑色，在深色底上等于消失。
+    底色取 DSH 的 deepseek 蓝，图形用白色，明暗两套主题下都能看清。
+  -->
+  <defs>
+    <linearGradient id="smTile" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5686fe"/>
+      <stop offset="1" stop-color="#4176e6"/>
+    </linearGradient>
+  </defs>
+  <rect width="24" height="24" rx="6" fill="url(#smTile)"/>
+  <rect x="4.6" y="5.6" width="14.8" height="5.1" rx="2.55" fill="#ffffff" fill-opacity="0.96"/>
+  <rect x="4.6" y="13.3" width="14.8" height="5.1" rx="2.55" fill="#ffffff" fill-opacity="0.74"/>
+  <circle cx="7.7" cy="8.15" r="1" fill="#4176e6"/>
+  <circle cx="7.7" cy="15.85" r="1" fill="#4176e6"/>
+  <path d="M10.6 8.15h5.6" stroke="#4176e6" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M10.6 15.85h3.9" stroke="#4176e6" stroke-width="1.4" stroke-linecap="round"/>
 </svg>
