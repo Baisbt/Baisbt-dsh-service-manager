@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.0--rc.1-6f42c1)](#兼容性)
-[![Build](https://img.shields.io/badge/build-none-brightgreen)](#开发)
+[![Build](https://img.shields.io/badge/build-tsc%20%C2%B7%20jsx-blue)](#开发)
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 
 [English](README.md) · 简体中文
@@ -42,6 +42,7 @@ DSH 官方没有 MCP 管理界面——想加一台服务器只能手写 YAML，
 
 - **列出 DSH 能看到的全部技能**，摘要和正文分成两层展示
 - **用你自己的模型翻摘要** —— 下拉框列出 DSH 里配置的所有 provider × model，默认取你的默认模型，选择会记住
+- **跟着界面语言走** —— 摘要翻成 DSH 当前的语言；原文本来就是该语言的直接跳过，不消耗 token
 - **`译文 / 原文` 一键切换全部**，卡片右下角 **↻** 单独重翻，工具栏还能批量重翻
 - **落盘缓存** —— 第二次打开是零请求
 - **失败可见** —— 模型翻不动时卡片明确标出 `机翻`，不会假装成功
@@ -183,7 +184,7 @@ cordis.patch.yml (插件自带)
 - DSH `>= 0.2.0-rc.1 < 0.3.0`
 - Windows / macOS / Linux 桌面端
 - 明暗主题自动跟随
-- 无构建步骤、无运行期依赖
+- Client 半区是 TypeScript + JSX，**一条 `pnpm build` 编译**，**无运行期依赖**
 
 ## 常见问题
 
@@ -236,7 +237,18 @@ cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
 
 ## 开发
 
-没有构建步骤，`index.js` 和 `client.js` 都是直接运行的 ESM。
+两半区、两套工具链：
+
+- **Host 半区** —— [index.js](index.js)，纯 ESM，没有构建步骤，DSH 直接 import。
+- **Client 半区** —— [client.tsx](client.tsx)，TypeScript + JSX，由 `tsc` 编译成 `client.js`。React 永远不打包：编译后的 factory 从宿主的静态模块表取，产物仍然是普通脚本（`window.__ModuleLoader__.load(...)`），不是 ES 模块。
+
+```bash
+pnpm install    # 只装一次：typescript + React 的类型包，都是 devDependency
+pnpm build      # client.tsx → client.js
+pnpm test       # 先编译，再跑两个冒烟
+```
+
+`client.js` 是构建产物，但**故意提交进仓库**：它就是插件对外提供的那份，装上就能用、不需要编译器。不要手改它 —— 改 `client.tsx` 再重新编译。
 
 ```bash
 # 离线渲染冒烟：用最小 React 替身把两个页面、两个抽屉、中英两种语言都渲染一遍
@@ -245,10 +257,10 @@ node test/render-smoke.mjs
 node test/host-smoke.mjs
 ```
 
-发布前跑一次构建戳，把版本、commit、构建时间写进两半区的 `BUILD` 常量：
+发布前跑一次构建戳，把版本、commit、构建时间写进两半区的 `BUILD` 常量（写完会自动重新编译 `client.js`）：
 
 ```bash
-node scripts/stamp.mjs          # 写入（然后一起提交）
+node scripts/stamp.mjs          # 写入 + 重新编译（然后一起提交）
 node scripts/stamp.mjs --check  # 只校验版本是否一致
 ```
 
@@ -266,15 +278,28 @@ node docs/preview/serve.mjs   # 然后打开 http://127.0.0.1:4173/docs/preview/
 
 ## 更新记录
 
+### 0.12.0
+
+- **Client 半区改为 TypeScript + JSX**：源码是 `client.tsx`，`pnpm build` 用 `tsc` 编译成 `client.js` —— 产物仍是单文件普通脚本，React 依然取自宿主的静态模块表，没有打包器、没有第二个运行时。类型错误现在会挡住构建，而不是等页面崩。
+- **交互补完**：服务器行有了可见的键盘焦点；展开/收起带高度过渡，收起后是零高度且不可聚焦；reduced-motion 从两行零散规则收成一套统一策略；原生 `title` 换成 portal 气泡；两个删除确认框合并成一个组件；骨架按真实布局重画；读失败时给错误态，而不是说「还没有服务器」；表格改按容器宽度重排。
+
+### 0.11.0
+
+- **翻译跟随界面语言**：技能与工具摘要翻成 DSH 当前的语言，模型提示词与机翻兜底不再假定「英文 → 简体中文」。
+- **原文已经是目标语言的条目在发请求之前就跳过**，不消耗 token。
+- **缓存按目标语言分槽存**（格式 v3）。已有的中文译文自动迁移到 `zh` 槽，升级后不需要重翻。
+- 75 秒的批量预算成为硬上限：单次请求的超时取「45 秒」与「剩余预算」中较小的那个。
+
 ### 0.10.0
 
 - **移除调用统计。** 调用统计页和它的全部采集代码已删除，插件只剩 MCP 服务器与技能两个页面。旧数据文件 `<profile>\.dsh-service-manager\stats.json` 已成为孤儿文件，可以手动删除；插件不再读写它。
 
 ## 参与贡献
 
-Issue 和 PR 都欢迎。两个让改动更容易被接受的点：
+Issue 和 PR 都欢迎。三个让改动更容易被接受的点：
 
 - Host 半区不要引入新的运行期依赖，它故意是纯 ESM
+- Client 半区用宿主那份 React，不要把第二个框架打进 `client.js`
 - 提 PR 前跑一遍 `node test/render-smoke.mjs`，它不开浏览器就能抓到渲染断裂
 
 ## License

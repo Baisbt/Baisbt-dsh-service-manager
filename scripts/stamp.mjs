@@ -8,24 +8,28 @@
  *  - 页面拿 BUILD.commit 和 Host 自述的 build.commit 比对，就能自己判断
  *    "页面里跑的是不是旧构建"，不需要人肉对照文件时间。
  *
+ * 打在哪：index.js 与 client.tsx（源码）。client.js 是编译产物，不手改；
+ * 所以写入之后必须重新编译，否则发出去的 bundle 还带着旧戳——这一步脚本自己会做。
+ *
  * 用法：
- *   node scripts/stamp.mjs          写入（发布前跑一次，然后提交）
+ *   node scripts/stamp.mjs          写入并重新编译（发布前跑一次，然后提交）
  *   node scripts/stamp.mjs --check  只校验 version 是否一致，不一致退出码 1
  *
  * 注意：commit 取的是"打包时"的 HEAD，可能比发布提交早一个，这是刻意的——
  * 它只用于"两边是不是同一份构建"的相等比较，不承担追溯发布点的职责。
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
-const FILES = ["index.js", "client.js"];
+const FILES = ["index.js", "client.tsx"];
 const PATTERN = /const BUILD = \{ version: (?:"[^"]*"|'[^']*'), commit: (?:"[^"]*"|'[^']*'), built: (?:"[^"]*"|'[^']*') \};/;
 
 const check = process.argv.includes("--check");
+let changed = false;
 
 function git(args) {
   try {
@@ -74,6 +78,7 @@ for (const file of FILES) {
 
   /* 只替换这一行，其余字节原样保留 */
   await writeFile(full, text.replace(PATTERN, wanted), "utf8");
+  changed = true;
   console.log(`✔ ${file}: ${currentVersion}@${currentCommit} → ${version}@${commit}`);
 }
 
@@ -82,3 +87,12 @@ if (failures > 0) {
   process.exit(1);
 }
 if (check) console.log("\n构建戳一致");
+
+/* 源码变了就必须重新编译：client.js 才是发出去、也是页面真正加载的那份 */
+if (!check && changed) {
+  const build = spawnSync(process.execPath, [path.join(HERE, "build.mjs")], { cwd: ROOT, stdio: "inherit" });
+  if (build.status !== 0) {
+    console.error("✘ 构建戳已写入，但 client.js 编译失败");
+    process.exit(build.status ?? 1);
+  }
+}

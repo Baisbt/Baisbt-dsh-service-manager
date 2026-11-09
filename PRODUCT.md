@@ -11,7 +11,7 @@ web
 平台强制，不是自由选择：这是一个 DeepSeek Harness（DSH）插件。
 
 - Host 半区：手写 ESM `index.js`，由宿主直接加载，无编译步骤、不引入打包器。
-- Client 半区：单文件手写 `client.js`，通过宿主的 `window.__ModuleLoader__.load({id, factory})` 外壳注册；React 从宿主的冻结模块表取，绝不打包。
+- Client 半区：TypeScript + JSX 的 `client.tsx`，用 `tsc` 编译成单文件 `client.js`（无打包器、无第二个运行时），通过宿主的 `window.__ModuleLoader__.load({id, factory})` 外壳注册；React 从宿主的冻结模块表取，绝不打包。
 - 禁用：任何 UI 组件库、外部图标/字体 CDN。颜色只取宿主 `--dsw-alias-*` 设计 token。
 
 ## Users

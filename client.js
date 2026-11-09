@@ -1,445 +1,428 @@
 /**
- * 服务管理页 · Client 半区（手写单文件，不经打包）
+ * 服务管理页 · Client 半区
  *
- * 设计立场：这个页面是 DSH 的一部分，不是外挂工具。
- *  - 只用宿主的设计 token（--dsw-alias-*），明暗自动跟随
- *  - 内容宽 960、内边距 clamp(24px,4vw,48px)、段间 32 —— 与宿主「插件」页同节奏
+ * 源码是 client.tsx（TypeScript + JSX），本文件由 `pnpm build` 生成，不要手改。
+ * 产物的运行形态没有变：仍然是一个调用 window.__ModuleLoader__.load({ id, factory }) 的普通脚本，
+ * factory 用宿主给的 require 从静态模块表里取 react，不打包 React，也不产生 ESM 语法。
+ *
+ * 设计立场（与前一版一致）：
+ *  - 这个页面是 DSH 的一部分，不是外挂工具：只用宿主的设计 token，明暗自动跟随
  *  - 状态不只靠颜色：圆点 + 文字，色盲友好
+ *  - 焦点、动效、三态（加载 / 空 / 错误）各有一套统一策略，见 CSS 段
  */
 window.__ModuleLoader__.load({
-  id: "dsh-service-manager",
-  factory(require) {
-    const React = require("react");
-    const h = React.createElement;
-    const { useCallback, useEffect, useMemo, useRef, useState } = React;
-
-    const NS = "service-manager";
-    const PANEL_ID = "service-manager";
-
-    /**
-     * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
-     * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
-     */
-    const BUILD = { version: "0.10.0", commit: "f1313e7", built: "2026-11-09T06:52:35.577Z" };
-
-    /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
-    const PRESETS = [
-      {
-        id: "tavily",
-        labelKey: "presetTavily",
-        values: {
-          serverName: "tavily",
-          transport: "streamable-http",
-          url: "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}",
-          headers: [],
-          note: "Tavily 搜索与网页提取",
-        },
-      },
-      {
-        id: "github",
-        labelKey: "presetGithub",
-        values: {
-          serverName: "github",
-          transport: "stdio",
-          command: "npx",
-          args: "-y\n@modelcontextprotocol/server-github",
-          cwd: "",
-          env: [{ k: "GITHUB_PERSONAL_ACCESS_TOKEN", v: "${GITHUB_TOKEN}" }],
-          note: "GitHub issue / PR 操作",
-        },
-      },
-      {
-        id: "filesystem",
-        labelKey: "presetFilesystem",
-        values: {
-          serverName: "files",
-          transport: "stdio",
-          command: "npx",
-          args: "-y\n@modelcontextprotocol/server-filesystem\nD:\\",
-          cwd: "D:\\",
-          note: "把本机目录暴露给模型",
-        },
-      },
-      {
-        id: "fetch",
-        labelKey: "presetFetch",
-        values: {
-          serverName: "fetch",
-          transport: "stdio",
-          command: "uvx",
-          args: "mcp-server-fetch",
-          cwd: "",
-          note: "抓取网页正文",
-        },
-      },
-    ];
-
-    /* ---------------------------------------------------------------- 文案 */
-
-    const MESSAGES = {
-      zh: {
-        nav: "服务管理",
-        back: "返回会话",
-        title: "服务管理",
-        sub: "MCP 服务器与技能的统一入口。改动会直接写进配置，下次对话即可使用。",
-        refresh: "刷新",
-        tabs: { mcp: "MCP 服务器", skill: "技能" },
-        search: "搜索服务器…",
-        add: "新增服务器",
-        colName: "名称",
-        colEndpoint: "传输 / 端点",
-        colStatus: "状态",
-        colTools: "工具",
-        colActions: "操作",
-        statusConnected: "已连接",
-        statusConfigured: "已加载",
-        statusDisabled: "已停用",
-        statusFailed: "连接失败",
-        emptyTitle: "还没有 MCP 服务器",
-        emptyBody: "MCP 服务器让 AI 能调用外部工具。加上一台，它提供的工具会立刻出现在对话框里。",
-        emptyAdd: "新增第一台",
-        emptyOpen: "打开配置文件",
-        loading: "正在读取…",
-        errorTitle: "读取失败",
-        retry: "重试",
-        verStaleTitle: "插件已更新，重启 DSH 后生效",
-        verStaleBody: "当前页面来自磁盘上的新版本，但 Host 进程还在跑旧版本。重启一次 DSH 即可。",
-        verMissingTitle: "Host 比页面旧，缺少版本接口",
-        verMissingBody: "磁盘上的页面已带版本接口，正在跑的 Host 还没有（早于 0.8.0）。重启一次 DSH 即可。",
-        verPageTitle: "页面里是旧版界面",
-        verPageBody: "刷新页面即可载入新版本；刷新后仍提示说明构建戳没更新。",
-        verUnknown: "读不到磁盘上的 package.json，无法判断是否需要重启。",
-        verDisk: "磁盘",
-        verRunning: "进程",
-        verStarted: "启动于",
-        verDismiss: "忽略",
-        showInFiles: "在文件管理器中显示",
-        edit: "编辑",
-        remove: "删除",
-        enable: "启用",
-        disable: "停用",
-        removeConfirm: "删除后这台服务器会从配置里移除，模型将无法再调用它的工具。",
-        cancel: "取消",
-        close: "关闭",
-        confirmRemove: "确认删除",
-        save: "保存",
-        saving: "保存中…",
-        formTitleNew: "新增 MCP 服务器",
-        formTitleEdit: "编辑 MCP 服务器",
-        fieldName: "服务器名",
-        fieldNameHint: "模型看到的工具名前缀，例如 github 会得到 mcp__github__create_issue",
-        fieldTransport: "传输方式",
-        fieldCommand: "启动命令",
-        fieldArgs: "参数",
-        fieldArgsHint: "每行一个",
-        fieldCwd: "工作目录",
-        fieldCwdHint: "必填。留空服务器会启动失败。",
-        fieldUrl: "服务地址",
-        fieldEnv: "环境变量",
-        fieldEnvHint: "值里写 ${NAME} 表示从环境变量读取，不会把明文写进配置文件。",
-        fieldHeaders: "请求头",
-        fieldHeadersHint: "值里写 ${NAME} 表示从环境变量读取，例如 Authorization: Bearer ${TAVILY_API_KEY}。",
-        addPair: "添加一项",
-        removePair: "移除",
-        keyLabel: "键",
-        valueLabel: "值",
-        presetLabel: "从模板开始",
-        presetNone: "不使用模板",
-        presetTavily: "Tavily 搜索",
-        presetGithub: "GitHub",
-        presetFilesystem: "本地文件系统",
-        presetFetch: "网页抓取（uvx）",
-        envRefHint: "提示：任何字段里写 ${VAR} 都会在加载时从环境变量取，配置文件里不留明文。改完需要重启 DSH。",
-        more: "更多",
-        fieldNote: "备注",
-        fieldNoteHint: "只显示在这里，不会给模型看",
-        skillTitle: "技能",
-        searchSkill: "搜索技能…",
-        summaryLabel: "摘要",
-        translating: "摘要翻译中…",
-        translateModel: "翻译模型",
-        translateModelHint: "技能摘要用这个模型翻译。只影响这里的显示，SKILL.md 本身不会改，注入给模型的仍是英文原文。",
-        noModel: "没有可用模型",
-        required: "必填",
-        paramsLabel: "参数",
-        toolNoDesc: "没有描述",
-        toolPending: "服务器还没连上，工具列表会在连接后出现。",
-        toolDisabled: "已停用，不加载工具。",
-        reconnecting: "正在重连 MCP 服务器…",
-        toolTransFailed: "部分工具摘要没翻译成功",
-        retranslate: "重新翻译",
-        retranslateAll: "重新翻译全部",
-        translateRetry: "重试",
-        viewMode: "显示语言",
-        showTranslated: "译文",
-        showOriginal: "原文",
-        transModel: "模型译",
-        transMachine: "机翻",
-        transNone: "未译出",
-        transBusy: "翻译中",
-        noticeWaiting: "{n} 条摘要正在翻译…",
-        noticeMachine: "{n} 条用了机翻，质量不如模型",
-        noticeNone: "{n} 条没译出来",
-        sourceLabel: "原文",
-        searchNoResult: "没有匹配的技能",
-        removeSkillConfirm: "技能文件会被改名（改成 SKILL.md.disabled-时间戳），DSH 将不再加载它。想恢复时把名字改回来即可。",
-        skillEmpty: "没有找到技能",
-        skillEmptyBody: "技能放在 ~/.agents/skills 或 ~/.dsh/skills 下，每个技能是一个含 SKILL.md 的目录。",
-        skillHidden: "仅手动调用",
-        skillScopeUser: "用户级",
-        openFile: "打开配置文件",
-        openFolder: "打开配置目录",
-        externalNote: "由用户手工维护，本页仅展示",
-        savedButRestart: "已写入，但需要重启 DSH 才能生效",
-      },
-      en: {
-        nav: "Services",
-        back: "Back to chat",
-        title: "Services",
-        sub: "One place for MCP servers and skills. Changes go straight into the config and are available in the next turn.",
-        refresh: "Refresh",
-        tabs: { mcp: "MCP servers", skill: "Skills" },
-        search: "Search servers…",
-        add: "Add server",
-        colName: "Name",
-        colEndpoint: "Transport / endpoint",
-        colStatus: "Status",
-        colTools: "Tools",
-        colActions: "",
-        statusConnected: "Connected",
-        statusConfigured: "Loaded",
-        statusDisabled: "Disabled",
-        statusFailed: "Failed",
-        emptyTitle: "No MCP servers yet",
-        emptyBody: "MCP servers give the model tools from outside DSH. Add one and its tools appear in chat right away.",
-        emptyAdd: "Add the first one",
-        emptyOpen: "Open config file",
-        loading: "Loading…",
-        errorTitle: "Could not load",
-        retry: "Retry",
-        verStaleTitle: "Plugin updated — restart DSH to apply",
-        verStaleBody: "This page comes from the newer copy on disk, but the Host process still runs the old one. Restart DSH once.",
-        verMissingTitle: "Host is older than this page",
-        verMissingBody: "The page on disk already ships the version endpoint; the running Host predates 0.8.0. Restart DSH once.",
-        verPageTitle: "This page renders an older build",
-        verPageBody: "Reload the page to pick up the new version; if the notice survives a reload, the build stamp was not updated.",
-        verUnknown: "Could not read package.json on disk, so the restart check is unavailable.",
-        verDisk: "disk",
-        verRunning: "process",
-        verStarted: "started",
-        verDismiss: "Dismiss",
-        showInFiles: "Show in file manager",
-        edit: "Edit",
-        remove: "Remove",
-        enable: "Enable",
-        disable: "Disable",
-        removeConfirm: "Removing this server deletes it from the config; its tools disappear from the model.",
-        cancel: "Cancel",
-        close: "Close",
-        confirmRemove: "Remove",
-        save: "Save",
-        saving: "Saving…",
-        formTitleNew: "Add MCP server",
-        formTitleEdit: "Edit MCP server",
-        fieldName: "Server name",
-        fieldNameHint: "Prefix of the tool names the model sees.",
-        fieldTransport: "Transport",
-        fieldCommand: "Command",
-        fieldArgs: "Arguments",
-        fieldArgsHint: "One per line",
-        fieldCwd: "Working directory",
-        fieldCwdHint: "Required. Leaving it empty makes the server fail to start.",
-        fieldUrl: "Endpoint URL",
-        fieldEnv: "Environment",
-        fieldEnvHint: "A value like ${NAME} is read from the environment and never written to the config file in plain text.",
-        fieldHeaders: "Headers",
-        fieldHeadersHint: "A value like ${NAME} is read from the environment, e.g. Authorization: Bearer ${TAVILY_API_KEY}.",
-        addPair: "Add",
-        removePair: "Remove",
-        keyLabel: "Key",
-        valueLabel: "Value",
-        presetLabel: "Start from a preset",
-        presetNone: "No preset",
-        presetTavily: "Tavily search",
-        presetGithub: "GitHub",
-        presetFilesystem: "Local filesystem",
-        presetFetch: "Web fetch (uvx)",
-        envRefHint: "Tip: writing ${VAR} anywhere makes DSH read it from the environment at load time, so no secret lands in the config file. Restart DSH after changing this.",
-        more: "More",
-        fieldNote: "Note",
-        fieldNoteHint: "Shown here only, never sent to the model.",
-        skillTitle: "Skills",
-        searchSkill: "Search skills…",
-        summaryLabel: "Summary",
-        translating: "Translating summaries…",
-        translateModel: "Translation model",
-        translateModelHint: "Skill summaries are translated with this model. Display only — SKILL.md is never modified and the model still receives the English original.",
-        noModel: "No model available",
-        required: "Required",
-        paramsLabel: "Parameters",
-        toolNoDesc: "No description",
-        toolPending: "Not connected yet — tools appear once the server connects.",
-        toolDisabled: "Disabled, so no tools are loaded.",
-        reconnecting: "Reconnecting MCP servers…",
-        toolTransFailed: "Some tool summaries could not be translated",
-        retranslate: "Translate again",
-        retranslateAll: "Translate all again",
-        translateRetry: "Retry",
-        viewMode: "Display language",
-        showTranslated: "Summary",
-        showOriginal: "Original",
-        transModel: "Model",
-        transMachine: "MT",
-        transNone: "Failed",
-        transBusy: "Translating",
-        noticeWaiting: "Translating {n} summaries…",
-        noticeMachine: "{n} used machine translation",
-        noticeNone: "{n} could not be translated",
-        sourceLabel: "Original",
-        searchNoResult: "No matching skills",
-        removeSkillConfirm: "The skill file is renamed to SKILL.md.disabled-<timestamp>, so DSH stops loading it. Rename it back to restore.",
-        skillEmpty: "No skills found",
-        skillEmptyBody: "Skills live in ~/.agents/skills or ~/.dsh/skills as folders containing SKILL.md.",
-        skillHidden: "Manual only",
-        skillScopeUser: "User",
-        openFile: "Open config file",
-        openFolder: "Open config folder",
-        externalNote: "Maintained by hand; read-only here",
-        savedButRestart: "Saved, but DSH must restart for this to take effect",
-      },
-    };
-
-    const pick = (locale) => {
-      const base = MESSAGES[String(locale || "").toLowerCase().startsWith("zh") ? "zh" : "en"] ?? MESSAGES.en;
-      return (key) => {
-        const parts = key.split(".");
-        let node = base;
-        for (const part of parts) node = node?.[part];
-        return typeof node === "string" ? node : key;
-      };
-    };
-
-    /* ------------------------------------------------------------ 语言服务 */
-
-    /**
-     * 界面语言必须读宿主 locale 服务的 getLocale().active（返回 `zh` / `en`）。
-     * 不能用 navigator.language：那是 Electron 启动参数 --lang 决定的，
-     * 与用户在设置里选的语言无关，会导致「界面已切英文、插件页仍是中文」。
-     */
-    let localeService = null;
-
-    const readLocale = () => {
-      try {
-        const active = localeService?.getLocale?.()?.active;
-        if (typeof active === "string" && active) return active;
-      } catch {
-        /* 宿主没提供 locale 服务时退回浏览器语言 */
-      }
-      return typeof navigator !== "undefined" && navigator.language ? navigator.language : "zh";
-    };
-
-    const tCache = new Map();
-    const tFor = (value) => {
-      const lang = String(value || "").toLowerCase().startsWith("zh") ? "zh" : "en";
-      let fn = tCache.get(lang);
-      if (!fn) {
-        fn = pick(lang);
-        tCache.set(lang, fn);
-      }
-      return fn;
-    };
-
-    /* 每次调用都按当前语言取，所以任何一次重渲染都会用上新语言 */
-    const t = (key) => tFor(readLocale())(key);
-
-    const subscribeLocale = (onChange) => {
-      try {
-        if (typeof localeService?.subscribe === "function") return localeService.subscribe(onChange);
-      } catch {
-        /* ignore */
-      }
-      return () => {};
-    };
-
-    /* 有 useSyncExternalStore 就订阅语言切换（切语言即时生效），否则退化为每次渲染读一次 */
-    const useLocaleTick = () => {
-      if (typeof React.useSyncExternalStore === "function") {
-        React.useSyncExternalStore(subscribeLocale, readLocale);
-      }
-    };
-
-    /* ---------------------------------------------------------------- 图标 */
-
-    const svg = (props, children) =>
-      h(
-        "svg",
-        {
-          viewBox: "0 0 16 16",
-          width: props.size ?? 16,
-          height: props.size ?? 16,
-          fill: "none",
-          "aria-hidden": "true",
-          style: { flex: "0 0 auto", display: "block", ...(props.style ?? {}) },
-        },
-        children
-      );
-
-    const IconBack = (p) => svg(p, h("path", { d: "M9.5 3.5 5 8l4.5 4.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }));
-    const IconRefresh = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M13 8a5 5 0 1 1-1.6-3.7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
-        h("path", { key: "b", d: "M13 2.5V5h-2.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }),
-      ]);
-    const IconPlus = (p) => svg(p, h("path", { d: "M8 3.5v9M3.5 8h9", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }));
-    const IconSearch = (p) =>
-      svg(p, [
-        h("circle", { key: "a", cx: 7, cy: 7, r: 4.2, stroke: "currentColor", strokeWidth: 1.5 }),
-        h("path", { key: "b", d: "m10.2 10.2 2.6 2.6", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
-      ]);
-    const IconServer = (p) =>
-      svg(p, [
-        h("rect", { key: "a", x: 2.5, y: 3, width: 11, height: 4, rx: 1.4, stroke: "currentColor", strokeWidth: 1.4 }),
-        h("rect", { key: "b", x: 2.5, y: 9, width: 11, height: 4, rx: 1.4, stroke: "currentColor", strokeWidth: 1.4 }),
-      ]);
-    const IconChevron = (p) => svg(p, h("path", { d: "m6 4 4 4-4 4", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }));
-    const IconMore = (p) =>
-      svg(p, [0, 4, 8].map((dx, i) => h("circle", { key: i, cx: 3 + dx, cy: 8, r: 1.15, fill: "currentColor" })));
-    const IconExternal = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M9 3.5h3.5V7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }),
-        h("path", { key: "b", d: "M12.5 3.5 7.5 8.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
-        h("path", { key: "c", d: "M11 10v2.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
-      ]);
-    const IconTrash = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M3 4.5h10", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-        h("path", { key: "b", d: "M6.5 4.5V3.4a.9.9 0 0 1 .9-.9h1.2a.9.9 0 0 1 .9.9v1.1", stroke: "currentColor", strokeWidth: 1.4 }),
-        h("path", { key: "c", d: "M4.5 4.5 5 12.2a1 1 0 0 0 1 .8h4a1 1 0 0 0 1-.8l.5-7.7", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }),
-      ]);
-    const IconClose = (p) =>
-      svg(p, h("path", { d: "m4.5 4.5 7 7m0-7-7 7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }));
-    const IconFolder = (p) =>
-      svg(p, h("path", { d: "M2.5 4.6a1 1 0 0 1 1-1h2.6l1.2 1.4h4.2a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }));
-    const IconEdit = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M10.4 2.9a1.4 1.4 0 0 1 2 2L6.2 11 3.5 12l1-2.7z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }),
-        h("path", { key: "b", d: "M9.2 4.1 11.6 6.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-      ]);
-    const IconTool = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M9.6 2.6a3.2 3.2 0 0 0-3.9 4.2l-3 3a1.2 1.2 0 0 0 0 1.7l.9.9a1.2 1.2 0 0 0 1.7 0l3-3a3.2 3.2 0 0 0 4.2-3.9l-2 2-1.5-.5-.5-1.5z", stroke: "currentColor", strokeWidth: 1.3, strokeLinejoin: "round" }),
-      ]);
-
-    const SidebarGlyph = () =>
-      h(
-        "span",
-        { className: "smNavGlyph", "aria-hidden": "true" },
-        h(IconServer, { size: 18 })
-      );
-
-    /* ----------------------------------------------------------------- CSS */
-
-    const CSS = `
+    id: "dsh-service-manager",
+    factory(require) {
+        const React = require("react");
+        const { useCallback, useEffect, useMemo, useRef, useState } = React;
+        /**
+         * tooltip 要 portal 到 body：行里有 overflow:hidden，气泡留在行内会被裁掉。
+         * 宿主的静态模块表里有 react-dom；Node 里的渲染测试没有，拿不到就降级成不显示。
+         */
+        let createPortal = null;
+        try {
+            const reactDom = require("react-dom");
+            const portal = reactDom?.createPortal ?? reactDom?.default?.createPortal;
+            if (typeof portal === "function")
+                createPortal = portal;
+        }
+        catch {
+            createPortal = null;
+        }
+        const NS = "service-manager";
+        const PANEL_ID = "service-manager";
+        /**
+         * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
+         * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
+         * 构建戳打在源码上，编译时原样落到 client.js。
+         */
+        const BUILD = { version: "0.12.0", commit: "f182ff8", built: "2026-11-09T09:00:28.943Z" };
+        /* ---------------------------------------------------------------- 文案 */
+        const PRESETS = [
+            {
+                id: "tavily",
+                labelKey: "presetTavily",
+                values: {
+                    serverName: "tavily",
+                    transport: "streamable-http",
+                    url: "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}",
+                    headers: [],
+                    note: "Tavily 搜索与网页提取",
+                },
+            },
+            {
+                id: "github",
+                labelKey: "presetGithub",
+                values: {
+                    serverName: "github",
+                    transport: "stdio",
+                    command: "npx",
+                    args: "-y\n@modelcontextprotocol/server-github",
+                    cwd: "",
+                    env: [{ k: "GITHUB_PERSONAL_ACCESS_TOKEN", v: "${GITHUB_TOKEN}" }],
+                    note: "GitHub issue / PR 操作",
+                },
+            },
+            {
+                id: "filesystem",
+                labelKey: "presetFilesystem",
+                values: {
+                    serverName: "files",
+                    transport: "stdio",
+                    command: "npx",
+                    args: "-y\n@modelcontextprotocol/server-filesystem\nD:\\",
+                    cwd: "D:\\",
+                    note: "把本机目录暴露给模型",
+                },
+            },
+            {
+                id: "fetch",
+                labelKey: "presetFetch",
+                values: {
+                    serverName: "fetch",
+                    transport: "stdio",
+                    command: "uvx",
+                    args: "mcp-server-fetch",
+                    cwd: "",
+                    note: "抓取网页正文",
+                },
+            },
+        ];
+        const MESSAGES = {
+            zh: {
+                nav: "服务管理",
+                back: "返回会话",
+                title: "服务管理",
+                sub: "MCP 服务器与技能的统一入口。改动会直接写进配置，下次对话即可使用。",
+                refresh: "刷新",
+                tabs: { mcp: "MCP 服务器", skill: "技能" },
+                search: "搜索服务器…",
+                add: "新增服务器",
+                colName: "名称",
+                colEndpoint: "传输 / 端点",
+                colStatus: "状态",
+                colTools: "工具",
+                colActions: "操作",
+                statusConnected: "已连接",
+                statusConfigured: "已加载",
+                statusDisabled: "已停用",
+                statusFailed: "连接失败",
+                emptyTitle: "还没有 MCP 服务器",
+                emptyBody: "MCP 服务器让 AI 能调用外部工具。加上一台，它提供的工具会立刻出现在对话框里。",
+                emptyAdd: "新增第一台",
+                emptyOpen: "打开配置文件",
+                loading: "正在读取…",
+                errorTitle: "读取失败",
+                retry: "重试",
+                verStaleTitle: "插件已更新，重启 DSH 后生效",
+                verStaleBody: "当前页面来自磁盘上的新版本，但 Host 进程还在跑旧版本。重启一次 DSH 即可。",
+                verMissingTitle: "Host 比页面旧，缺少版本接口",
+                verMissingBody: "磁盘上的页面已带版本接口，正在跑的 Host 还没有（早于 0.8.0）。重启一次 DSH 即可。",
+                verPageTitle: "页面里是旧版界面",
+                verPageBody: "刷新页面即可载入新版本；刷新后仍提示说明构建戳没更新。",
+                verUnknown: "读不到磁盘上的 package.json，无法判断是否需要重启。",
+                verDisk: "磁盘",
+                verRunning: "进程",
+                verStarted: "启动于",
+                verDismiss: "忽略",
+                showInFiles: "在文件管理器中显示",
+                edit: "编辑",
+                remove: "删除",
+                enable: "启用",
+                disable: "停用",
+                removeConfirm: "删除后这台服务器会从配置里移除，模型将无法再调用它的工具。",
+                cancel: "取消",
+                close: "关闭",
+                confirmRemove: "确认删除",
+                save: "保存",
+                saving: "保存中…",
+                formTitleNew: "新增 MCP 服务器",
+                formTitleEdit: "编辑 MCP 服务器",
+                fieldName: "服务器名",
+                fieldNameHint: "模型看到的工具名前缀，例如 github 会得到 mcp__github__create_issue",
+                fieldTransport: "传输方式",
+                fieldCommand: "启动命令",
+                fieldArgs: "参数",
+                fieldArgsHint: "每行一个",
+                fieldCwd: "工作目录",
+                fieldCwdHint: "必填。留空服务器会启动失败。",
+                fieldUrl: "服务地址",
+                fieldEnv: "环境变量",
+                fieldEnvHint: "值里写 ${NAME} 表示从环境变量读取，不会把明文写进配置文件。",
+                fieldHeaders: "请求头",
+                fieldHeadersHint: "值里写 ${NAME} 表示从环境变量读取，例如 Authorization: Bearer ${TAVILY_API_KEY}。",
+                addPair: "添加一项",
+                removePair: "移除",
+                keyLabel: "键",
+                valueLabel: "值",
+                presetLabel: "从模板开始",
+                presetNone: "不使用模板",
+                presetTavily: "Tavily 搜索",
+                presetGithub: "GitHub",
+                presetFilesystem: "本地文件系统",
+                presetFetch: "网页抓取（uvx）",
+                envRefHint: "提示：任何字段里写 ${VAR} 都会在加载时从环境变量取，配置文件里不留明文。改完需要重启 DSH。",
+                more: "更多",
+                fieldNote: "备注",
+                fieldNoteHint: "只显示在这里，不会给模型看",
+                skillTitle: "技能",
+                searchSkill: "搜索技能…",
+                summaryLabel: "摘要",
+                translating: "摘要翻译中…",
+                translateModel: "翻译模型",
+                translateModelHint: "技能摘要用这个模型翻译。只影响这里的显示，SKILL.md 本身不会改，注入给模型的仍是英文原文。",
+                noModel: "没有可用模型",
+                required: "必填",
+                paramsLabel: "参数",
+                toolNoDesc: "没有描述",
+                toolPending: "服务器还没连上，工具列表会在连接后出现。",
+                toolDisabled: "已停用，不加载工具。",
+                reconnecting: "正在重连 MCP 服务器…",
+                toolTransFailed: "部分工具摘要没翻译成功",
+                retranslate: "重新翻译",
+                retranslateAll: "重新翻译全部",
+                translateRetry: "重试",
+                viewMode: "显示语言",
+                showTranslated: "译文",
+                showOriginal: "原文",
+                transModel: "模型译",
+                transMachine: "机翻",
+                transNone: "未译出",
+                transBusy: "翻译中",
+                noticeWaiting: "{n} 条摘要正在翻译…",
+                noticeMachine: "{n} 条用了机翻，质量不如模型",
+                noticeNone: "{n} 条没译出来",
+                sourceLabel: "原文",
+                searchNoResult: "没有匹配的技能",
+                removeSkillConfirm: "技能文件会被改名（改成 SKILL.md.disabled-时间戳），DSH 将不再加载它。想恢复时把名字改回来即可。",
+                skillEmpty: "没有找到技能",
+                skillEmptyBody: "技能放在 ~/.agents/skills 或 ~/.dsh/skills 下，每个技能是一个含 SKILL.md 的目录。",
+                skillHidden: "仅手动调用",
+                skillScopeUser: "用户级",
+                openFile: "打开配置文件",
+                openFolder: "打开配置目录",
+                externalNote: "由用户手工维护，本页仅展示",
+                savedButRestart: "已写入，但需要重启 DSH 才能生效",
+            },
+            en: {
+                nav: "Services",
+                back: "Back to chat",
+                title: "Services",
+                sub: "One place for MCP servers and skills. Changes go straight into the config and are available in the next turn.",
+                refresh: "Refresh",
+                tabs: { mcp: "MCP servers", skill: "Skills" },
+                search: "Search servers…",
+                add: "Add server",
+                colName: "Name",
+                colEndpoint: "Transport / endpoint",
+                colStatus: "Status",
+                colTools: "Tools",
+                colActions: "",
+                statusConnected: "Connected",
+                statusConfigured: "Loaded",
+                statusDisabled: "Disabled",
+                statusFailed: "Failed",
+                emptyTitle: "No MCP servers yet",
+                emptyBody: "MCP servers give the model tools from outside DSH. Add one and its tools appear in chat right away.",
+                emptyAdd: "Add the first one",
+                emptyOpen: "Open config file",
+                loading: "Loading…",
+                errorTitle: "Could not load",
+                retry: "Retry",
+                verStaleTitle: "Plugin updated — restart DSH to apply",
+                verStaleBody: "This page comes from the newer copy on disk, but the Host process still runs the old one. Restart DSH once.",
+                verMissingTitle: "Host is older than this page",
+                verMissingBody: "The page on disk already ships the version endpoint; the running Host predates 0.8.0. Restart DSH once.",
+                verPageTitle: "This page renders an older build",
+                verPageBody: "Reload the page to pick up the new version; if the notice survives a reload, the build stamp was not updated.",
+                verUnknown: "Could not read package.json on disk, so the restart check is unavailable.",
+                verDisk: "disk",
+                verRunning: "process",
+                verStarted: "started",
+                verDismiss: "Dismiss",
+                showInFiles: "Show in file manager",
+                edit: "Edit",
+                remove: "Remove",
+                enable: "Enable",
+                disable: "Disable",
+                removeConfirm: "Removing this server deletes it from the config; its tools disappear from the model.",
+                cancel: "Cancel",
+                close: "Close",
+                confirmRemove: "Remove",
+                save: "Save",
+                saving: "Saving…",
+                formTitleNew: "Add MCP server",
+                formTitleEdit: "Edit MCP server",
+                fieldName: "Server name",
+                fieldNameHint: "Prefix of the tool names the model sees.",
+                fieldTransport: "Transport",
+                fieldCommand: "Command",
+                fieldArgs: "Arguments",
+                fieldArgsHint: "One per line",
+                fieldCwd: "Working directory",
+                fieldCwdHint: "Required. Leaving it empty makes the server fail to start.",
+                fieldUrl: "Endpoint URL",
+                fieldEnv: "Environment",
+                fieldEnvHint: "A value like ${NAME} is read from the environment and never written to the config file in plain text.",
+                fieldHeaders: "Headers",
+                fieldHeadersHint: "A value like ${NAME} is read from the environment, e.g. Authorization: Bearer ${TAVILY_API_KEY}.",
+                addPair: "Add",
+                removePair: "Remove",
+                keyLabel: "Key",
+                valueLabel: "Value",
+                presetLabel: "Start from a preset",
+                presetNone: "No preset",
+                presetTavily: "Tavily search",
+                presetGithub: "GitHub",
+                presetFilesystem: "Local filesystem",
+                presetFetch: "Web fetch (uvx)",
+                envRefHint: "Tip: writing ${VAR} anywhere makes DSH read it from the environment at load time, so no secret lands in the config file. Restart DSH after changing this.",
+                more: "More",
+                fieldNote: "Note",
+                fieldNoteHint: "Shown here only, never sent to the model.",
+                skillTitle: "Skills",
+                searchSkill: "Search skills…",
+                summaryLabel: "Summary",
+                translating: "Translating summaries…",
+                translateModel: "Translation model",
+                translateModelHint: "Skill summaries are translated with this model. Display only — SKILL.md is never modified and the model still receives the English original.",
+                noModel: "No model available",
+                required: "Required",
+                paramsLabel: "Parameters",
+                toolNoDesc: "No description",
+                toolPending: "Not connected yet — tools appear once the server connects.",
+                toolDisabled: "Disabled, so no tools are loaded.",
+                reconnecting: "Reconnecting MCP servers…",
+                toolTransFailed: "Some tool summaries could not be translated",
+                retranslate: "Translate again",
+                retranslateAll: "Translate all again",
+                translateRetry: "Retry",
+                viewMode: "Display language",
+                showTranslated: "Summary",
+                showOriginal: "Original",
+                transModel: "Model",
+                transMachine: "MT",
+                transNone: "Failed",
+                transBusy: "Translating",
+                noticeWaiting: "Translating {n} summaries…",
+                noticeMachine: "{n} used machine translation",
+                noticeNone: "{n} could not be translated",
+                sourceLabel: "Original",
+                searchNoResult: "No matching skills",
+                removeSkillConfirm: "The skill file is renamed to SKILL.md.disabled-<timestamp>, so DSH stops loading it. Rename it back to restore.",
+                skillEmpty: "No skills found",
+                skillEmptyBody: "Skills live in ~/.agents/skills or ~/.dsh/skills as folders containing SKILL.md.",
+                skillHidden: "Manual only",
+                skillScopeUser: "User",
+                openFile: "Open config file",
+                openFolder: "Open config folder",
+                externalNote: "Maintained by hand; read-only here",
+                savedButRestart: "Saved, but DSH must restart for this to take effect",
+            },
+        };
+        const pick = (locale) => {
+            const base = MESSAGES[String(locale || "").toLowerCase().startsWith("zh") ? "zh" : "en"] ?? MESSAGES.en;
+            return (key) => {
+                const parts = key.split(".");
+                let node = base;
+                for (const part of parts)
+                    node = node?.[part];
+                return typeof node === "string" ? node : key;
+            };
+        };
+        /* ------------------------------------------------------------ 语言服务 */
+        /**
+         * 界面语言必须读宿主 locale 服务的 getLocale().active（返回 `zh` / `en`）。
+         * 不能用 navigator.language：那是 Electron 启动参数 --lang 决定的，
+         * 与用户在设置里选的语言无关，会导致「界面已切英文、插件页仍是中文」。
+         */
+        let localeService = null;
+        const readLocale = () => {
+            try {
+                const active = localeService?.getLocale?.()?.active;
+                if (typeof active === "string" && active)
+                    return active;
+            }
+            catch {
+                /* 宿主没提供 locale 服务时退回浏览器语言 */
+            }
+            return typeof navigator !== "undefined" && navigator.language ? navigator.language : "zh";
+        };
+        /**
+         * 翻译目标语言 = DSH 的界面语言。Host 只认 zh / en，这里先归一化再发出去；
+         * 每次调用都现读，所以设置里切语言之后，下一次翻译请求就跟着变。
+         */
+        const currentLanguage = () => (String(readLocale() || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+        const tCache = new Map();
+        const tFor = (value) => {
+            const lang = String(value || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+            let fn = tCache.get(lang);
+            if (!fn) {
+                fn = pick(lang);
+                tCache.set(lang, fn);
+            }
+            return fn;
+        };
+        /* 每次调用都按当前语言取，所以任何一次重渲染都会用上新语言 */
+        const t = (key) => tFor(readLocale())(key);
+        const subscribeLocale = (onChange) => {
+            try {
+                if (typeof localeService?.subscribe === "function")
+                    return localeService.subscribe(onChange);
+            }
+            catch {
+                /* ignore */
+            }
+            return () => { };
+        };
+        /* 有 useSyncExternalStore 就订阅语言切换（切语言即时生效），否则退化为每次渲染读一次 */
+        const useLocaleTick = () => {
+            if (typeof React.useSyncExternalStore === "function") {
+                React.useSyncExternalStore(subscribeLocale, readLocale);
+            }
+        };
+        const Icon = ({ size = 16, style, children }) => (React.createElement("svg", { viewBox: "0 0 16 16", width: size, height: size, fill: "none", "aria-hidden": "true", style: { flex: "0 0 auto", display: "block", ...(style ?? {}) } }, children));
+        const IconBack = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M9.5 3.5 5 8l4.5 4.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" })));
+        const IconRefresh = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M13 8a5 5 0 1 1-1.6-3.7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
+            React.createElement("path", { d: "M13 2.5V5h-2.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" })));
+        const IconPlus = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M8 3.5v9M3.5 8h9", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })));
+        const IconSearch = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("circle", { cx: 7, cy: 7, r: 4.2, stroke: "currentColor", strokeWidth: 1.5 }),
+            React.createElement("path", { d: "m10.2 10.2 2.6 2.6", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })));
+        const IconServer = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("rect", { x: 2.5, y: 3, width: 11, height: 4, rx: 1.4, stroke: "currentColor", strokeWidth: 1.4 }),
+            React.createElement("rect", { x: 2.5, y: 9, width: 11, height: 4, rx: 1.4, stroke: "currentColor", strokeWidth: 1.4 })));
+        const IconChevron = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "m6 4 4 4-4 4", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" })));
+        const IconMore = (p) => (React.createElement(Icon, { size: p.size, style: p.style }, [0, 4, 8].map((dx, index) => (React.createElement("circle", { key: index, cx: 3 + dx, cy: 8, r: 1.15, fill: "currentColor" })))));
+        const IconExternal = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M9 3.5h3.5V7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" }),
+            React.createElement("path", { d: "M12.5 3.5 7.5 8.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }),
+            React.createElement("path", { d: "M11 10v2.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2.5", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })));
+        const IconTrash = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M3 4.5h10", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+            React.createElement("path", { d: "M6.5 4.5V3.4a.9.9 0 0 1 .9-.9h1.2a.9.9 0 0 1 .9.9v1.1", stroke: "currentColor", strokeWidth: 1.4 }),
+            React.createElement("path", { d: "M4.5 4.5 5 12.2a1 1 0 0 0 1 .8h4a1 1 0 0 0 1-.8l.5-7.7", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" })));
+        const IconClose = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "m4.5 4.5 7 7m0-7-7 7", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })));
+        const IconFolder = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M2.5 4.6a1 1 0 0 1 1-1h2.6l1.2 1.4h4.2a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" })));
+        const IconEdit = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M10.4 2.9a1.4 1.4 0 0 1 2 2L6.2 11 3.5 12l1-2.7z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }),
+            React.createElement("path", { d: "M9.2 4.1 11.6 6.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" })));
+        const IconTool = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M9.6 2.6a3.2 3.2 0 0 0-3.9 4.2l-3 3a1.2 1.2 0 0 0 0 1.7l.9.9a1.2 1.2 0 0 0 1.7 0l3-3a3.2 3.2 0 0 0 4.2-3.9l-2 2-1.5-.5-.5-1.5z", stroke: "currentColor", strokeWidth: 1.3, strokeLinejoin: "round" })));
+        const IconAlert = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M8 3.2 14 13H2z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }),
+            React.createElement("path", { d: "M8 6.6v3.2", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
+            React.createElement("circle", { cx: 8, cy: 11.4, r: 0.75, fill: "currentColor" })));
+        const SidebarGlyph = () => (React.createElement("span", { className: "smNavGlyph", "aria-hidden": "true" },
+            React.createElement(IconServer, { size: 18 })));
+        /* ----------------------------------------------------------------- CSS */
+        const CSS = `
 .smPage{box-sizing:border-box;height:100%;overflow:auto;color:var(--dsw-alias-label-primary);
   font-family:var(--dsw-font-family);-webkit-font-smoothing:antialiased}
 .smInner{width:100%;max-width:1280px;margin:0 auto;padding:20px clamp(24px,4vw,56px) 64px;display:flex;flex-direction:column;gap:28px}
@@ -479,7 +462,13 @@ window.__ModuleLoader__.load({
 .smBtnGhost{border-color:transparent;background:transparent;color:var(--dsw-alias-label-tertiary)}
 .smBtnGhost:hover{color:var(--dsw-alias-label-primary)}
 .smBtn:disabled{opacity:.5;cursor:default}
-.smTable{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}
+/* 键盘焦点统一一套：宿主 token 的 focus ring，偏移按控件体积取 1–2px */
+.smBtn:focus-visible,.smBack:focus-visible,.smTab:focus-visible,.smSegBtn:focus-visible,.smIconBtn:focus-visible,
+.smSwitch:focus-visible,.smLinkBtn:focus-visible,.smSelect:focus-visible,.smKVAdd:focus-visible,.smKVRemove:focus-visible,
+.smBtnDangerSolid:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+.smBtnDangerSolid{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
+.smBtnDangerSolid:hover:not(:disabled){background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 86%, #000)}
+.smTable{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2);container-type:inline-size;container-name:smtable}
 .smTHead{display:grid;grid-template-columns:minmax(150px,1.1fr) minmax(180px,1.7fr) 100px 48px 112px;gap:16px;
   padding:8px 10px 8px 32px;font-size:11px;line-height:14px;letter-spacing:.02em;color:var(--dsw-alias-label-caption);box-sizing:border-box}
 .smRowWrap{border-bottom:1px solid var(--dsw-alias-border-l2)}
@@ -487,10 +476,10 @@ window.__ModuleLoader__.load({
   width:100%;box-sizing:border-box;position:relative;padding:12px 10px 12px 32px;background:transparent;border:0;color:inherit;
   font:inherit;text-align:left;cursor:default;transition:background .12s ease}
 .smRow[data-expandable=true]{cursor:pointer}
+.smRow:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .smRowChevron{position:absolute;left:9px;top:50%;margin-top:-6px;color:var(--dsw-alias-label-caption);
   pointer-events:none;transition:transform .16s cubic-bezier(.4,0,.2,1)}
 .smRowChevron[data-open=true]{transform:rotate(90deg)}
-@media (prefers-reduced-motion:reduce){.smRowChevron{transition:none}}
 .smRowWrap:hover>.smRow{background:var(--dsw-alias-interactive-bg-hover)}
 .smName{display:flex;flex-direction:column;gap:2px;min-width:0}
 .smNameMain{display:flex;align-items:center;gap:8px;min-width:0}
@@ -509,7 +498,11 @@ window.__ModuleLoader__.load({
 .smTools{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .smTools[data-empty=true]{color:var(--dsw-alias-label-dimmed)}
 .smActions{display:flex;align-items:center;justify-content:flex-end;gap:1px;flex:0 0 auto}
-.smDetail{display:flex;flex-direction:column;gap:8px;padding:2px 10px 16px 24px}
+/* 展开区用 grid-template-rows 0fr→1fr 过渡：内容高度不用测量，也不会出现 max-height 的抖动 */
+.smDetail{display:grid;grid-template-rows:0fr;overflow:hidden;transition:grid-template-rows .26s cubic-bezier(.32,.72,0,1)}
+.smRowWrap[data-open=true]>.smDetail{grid-template-rows:1fr}
+.smDetailInner{min-height:0;overflow:hidden}
+.smDetailBody{display:flex;flex-direction:column;gap:8px;padding:2px 10px 16px 24px}
 .smToolbarDivider{width:1px;height:16px;background:var(--dsw-alias-border-l3);flex:0 0 auto;margin:0 2px}
 .smDetailHead{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption)}
 .smToolList{display:flex;flex-wrap:wrap;gap:6px}
@@ -562,9 +555,26 @@ window.__ModuleLoader__.load({
   transition:background .12s ease,color .12s ease}
 .smBannerClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .smBannerClose:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
-.smSkeleton{height:52px;border-bottom:1px solid var(--dsw-alias-border-l2);
+/* 抽屉正文的加载占位（表格/卡片各有自己的骨架，见下） */
+.smSkeleton{border-radius:var(--dsw-radius-sm,8px);
   background:linear-gradient(90deg,transparent,var(--dsw-alias-bg-skeleton),transparent);background-size:200% 100%;animation:smShimmer 1.4s ease-in-out infinite}
 @keyframes smShimmer{0%{background-position:120% 0}100%{background-position:-20% 0}}
+/* 骨架按真实布局画：表格用同样的五列，卡片用同样的内容块，加载完成时不会整块跳动 */
+.smSkRow{display:grid;grid-template-columns:minmax(150px,1.1fr) minmax(180px,1.7fr) 100px 48px 112px;gap:16px;align-items:center;
+  padding:16px 10px 16px 32px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.smSkBar{display:block;height:10px;border-radius:999px;background:var(--dsw-alias-bg-skeleton);opacity:.7}
+.smSkBar[data-shimmer=true]{background:linear-gradient(90deg,transparent,var(--dsw-alias-bg-skeleton),transparent);
+  background-size:200% 100%;animation:smShimmer 1.4s ease-in-out infinite;opacity:1}
+.smSkCard{display:flex;flex-direction:column;gap:8px;padding:14px 14px 40px;border:1px solid var(--dsw-alias-border-l3);
+  border-radius:var(--dsw-radius-md,12px)}
+/* tooltip：portal 到 body，脱离 overflow 容器，长路径/长描述不会把行撑开 */
+.smTip{display:contents}
+.smTipBubble{position:fixed;z-index:90;max-width:320px;padding:6px 9px;border-radius:var(--dsw-radius-sm,8px);
+  background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l4);
+  box-shadow:var(--dsw-elevation-prominent);font-size:12px;line-height:17px;font-weight:400;text-align:left;
+  white-space:normal;word-break:break-word;pointer-events:none;transform:translate(-50%,-100%);animation:smFade .1s ease}
+.smTipBubble[data-above=false]{transform:translate(-50%,0)}
+.smEmptyIconDanger{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);color:var(--dsw-alias-state-error-primary)}
 .smCards{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:12px}
 .smCard{position:relative;display:flex;flex-direction:column;gap:6px;padding:14px 14px 40px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,12px);
   background:transparent;text-align:left;color:inherit;font:inherit;cursor:pointer;transition:border-color .12s ease,background .12s ease}
@@ -594,7 +604,6 @@ window.__ModuleLoader__.load({
 .smTransTag[data-engine=none] i{background:var(--dsw-alias-state-warn-primary)}
 .smTransTag[data-engine=pending] i{background:var(--dsw-alias-state-business-primary);animation:smPulse 1.2s ease-in-out infinite}
 @keyframes smPulse{0%,100%{opacity:1}50%{opacity:.25}}
-@media (prefers-reduced-motion:reduce){.smTransTag[data-engine=pending] i{animation:none}}
 .smModelPick{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);white-space:nowrap}
 .smSelect{height:32px;padding:0 28px 0 10px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,8px);
   background-color:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;cursor:pointer;outline:0;
@@ -705,1945 +714,1437 @@ window.__ModuleLoader__.load({
 .smSegBtn[aria-pressed=true]{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px #0000001a}
 .smWarning{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-label)}
 .smNavGlyph{display:inline-flex;align-items:center;justify-content:center}
-@media (max-width:720px){
+/* 窄容器重排走容器查询：容器宽度 ≠ 窗口宽度，窗口够宽但左栏挤占时同样要生效 */
+@container smtable (max-width:720px){
   .smTHead{display:none}
   .smRow{grid-template-columns:1fr auto;grid-template-areas:"name actions" "endpoint endpoint" "status tools";row-gap:8px;align-items:start}
+  .smSkRow{grid-template-columns:1fr auto;align-items:start}
   .smRowChevron{top:14px;margin-top:0}
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
 }
+/* 动效统一退出策略：保留全部状态反馈，只去掉位移与脉冲 */
+@media (prefers-reduced-motion:reduce){
+  .smDrawer,.smDrawerScrim,.smMenu,.smMask,.smDetail,.smRowChevron,.smSwitch,.smSwitch span,
+  .smCard,.smCardBtn,.smCardDelete,.smBtn,.smIconBtn,.smRow,.smTipBubble{transition:none;animation:none}
+  .smSkeleton{animation:none;background:var(--dsw-alias-interactive-bg-hover)}
+  .smSkBar[data-shimmer=true]{animation:none;background:var(--dsw-alias-interactive-bg-hover);opacity:1}
+  .smIconBtn[data-busy=true] svg,.smCardBtn[data-busy=true] svg{animation:none}
+  .smNotice[data-tone=business] .smNoticeDot,.smTransTag[data-engine=pending] i{animation:none}
+}
 `;
-
-    const styleTag = (id, css) =>
-      h("style", { "data-smd": id, dangerouslySetInnerHTML: { __html: css } });
-
-    /* ------------------------------------------------------------------ 工具 */
-
-    const request = async (url, init) => {
-      const response = await fetch(url, { credentials: "same-origin", ...init });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json();
-      if (payload && payload.ok === false) throw new Error(payload.error || "请求失败");
-      return payload;
-    };
-
-    /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
-    const shortClock = (iso) => {
-      const date = iso ? new Date(iso) : null;
-      if (!date || Number.isNaN(date.getTime())) return "";
-      const pad = (value) => String(value).padStart(2, "0");
-      return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    };
-
-    const endpointOf = (server) => {
-      if (!server.endpoint) return "—";
-      if (server.transport === "stdio") {
-        const short = server.endpoint.replace(/^.*[\\/]/, "");
-        return short.length > 64 ? short.slice(0, 61) + "…" : short;
-      }
-      return server.endpoint;
-    };
-
-    const STATUS_TONE = {
-      connected: "success",
-      configured: "warn",
-      idle: "warn",
-      disabled: "",
-      failed: "error",
-    };
-
-    /* --------------------------------------------------- 最小 Markdown 渲染 */
-
-    const inline = (text, keyPrefix) => {
-      const nodes = [];
-      const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/g;
-      let last = 0;
-      let match;
-      let index = 0;
-      while ((match = pattern.exec(text)) !== null) {
-        if (match.index > last) nodes.push(text.slice(last, match.index));
-        const token = match[0];
-        const key = `${keyPrefix}-i${index++}`;
-        if (token.startsWith("`")) {
-          nodes.push(h("code", { key }, token.slice(1, -1)));
-        } else if (token.startsWith("**")) {
-          nodes.push(h("strong", { key }, token.slice(2, -2)));
-        } else {
-          const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-          nodes.push(
-            h("a", { key, href: linkMatch[2], target: "_blank", rel: "noreferrer noopener" }, linkMatch[1])
-          );
-        }
-        last = match.index + token.length;
-      }
-      if (last < text.length) nodes.push(text.slice(last));
-      return nodes;
-    };
-
-    function renderMarkdown(source) {
-      const lines = String(source ?? "").replace(/\r\n/g, "\n").split("\n");
-      const blocks = [];
-      let paragraph = [];
-      let list = null;
-      let code = null;
-      let key = 0;
-
-      const flushParagraph = () => {
-        if (!paragraph.length) return;
-        const text = paragraph.join(" ").trim();
-        if (text) blocks.push(h("p", { key: `p${key++}` }, inline(text, `p${key}`)));
-        paragraph = [];
-      };
-      const flushList = () => {
-        if (!list) return;
-        blocks.push(h(list.ordered ? "ol" : "ul", { key: `l${key++}` }, list.items.map((item, i) => h("li", { key: i }, inline(item, `l${key}-${i}`)))));
-        list = null;
-      };
-
-      for (const rawLine of lines) {
-        const line = rawLine.replace(/\s+$/, "");
-        const fence = /^```(\w*)\s*$/.exec(line);
-        if (code !== null) {
-          if (fence) {
-            blocks.push(h("pre", { key: `c${key++}` }, h("code", null, code.join("\n"))));
-            code = null;
-          } else {
-            code.push(rawLine);
-          }
-          continue;
-        }
-        if (fence) {
-          flushParagraph();
-          flushList();
-          code = [];
-          continue;
-        }
-        if (line.trim() === "") {
-          flushParagraph();
-          flushList();
-          continue;
-        }
-        if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-          flushParagraph();
-          flushList();
-          blocks.push(h("hr", { key: `h${key++}` }));
-          continue;
-        }
-        const heading = /^(#{1,4})\s+(.*)$/.exec(line);
-        if (heading) {
-          flushParagraph();
-          flushList();
-          const level = heading[1].length;
-          blocks.push(h(`h${level}`, { key: `h${key++}` }, inline(heading[2], `h${key}`)));
-          continue;
-        }
-        const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-        const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
-        if (ordered || bullet) {
-          flushParagraph();
-          const isOrdered = Boolean(ordered);
-          if (!list || list.ordered !== isOrdered) {
-            flushList();
-            list = { ordered: isOrdered, items: [] };
-          }
-          list.items.push((ordered ?? bullet)[1]);
-          continue;
-        }
-        paragraph.push(line.trim());
-      }
-      if (code !== null) blocks.push(h("pre", { key: `c${key++}` }, h("code", null, code.join("\n"))));
-      flushParagraph();
-      flushList();
-      return blocks;
-    }
-
-    /* ---------------------------------------------------------------- 抽屉 */
-
-    /** 译文来源：绿点=模型、琥珀点=机翻或失败、蓝点脉冲=翻译中。 */
-    function TransTag({ t, entry, busy }) {
-      if (busy) {
-        return h("span", { className: "smTransTag", "data-engine": "pending" }, h("i", null), t("transBusy"));
-      }
-      if (!entry) return null;
-      if (entry.engine === "model") {
-        return h("span", { className: "smTransTag", "data-engine": "model", title: entry.model ?? "" }, h("i", null), t("transModel"));
-      }
-      if (entry.engine === "machine") {
-        return h("span", { className: "smTransTag", "data-engine": "machine" }, h("i", null), t("transMachine"));
-      }
-      if (entry.engine === "none") {
-        return h("span", { className: "smTransTag", "data-engine": "none" }, h("i", null), t("transNone"));
-      }
-      return null;
-    }
-
-    /** 工具摘要与参数说明的翻译键，技能/工具共用同一份磁盘缓存。 */
-    const toolKeyOf = (server, tool) => `${server.id}:${tool.name}`;
-    const paramKeyOf = (server, tool, param) => `${server.id}:${tool.name}#${param.name}`;
-
-    /** 抽屉外壳：遮罩 + 右侧滑入 + Esc 关闭，技能和工具共用。 */
-    function DrawerShell({ t, title, subtitle, onClose, onLocate, children }) {
-      const [open, setOpen] = useState(false);
-      /* 用 ref 存回调：父组件重渲染会换掉 onClose 的函数身份，
-         如果进把它放进依赖里，effect 每次都被取消，进场动画就永远播不出来。 */
-      const onCloseRef = useRef(onClose);
-      onCloseRef.current = onClose;
-      useEffect(() => {
-        const frame = requestAnimationFrame(() => setOpen(true));
-        const onKey = (event) => {
-          if (event.key === "Escape") onCloseRef.current();
-        };
-        window.addEventListener("keydown", onKey);
-        return () => {
-          cancelAnimationFrame(frame);
-          window.removeEventListener("keydown", onKey);
-        };
-      }, []);
-      const close = () => {
-        setOpen(false);
-        setTimeout(() => onCloseRef.current(), 200);
-      };
-      return h(
-        React.Fragment,
-        null,
-        h("div", { className: "smDrawerScrim", "data-open": open, onClick: close }),
-        h(
-          "aside",
-          { className: "smDrawer", "data-open": open, role: "dialog", "aria-modal": "true", "aria-label": title },
-          h(
-            "div",
-            { className: "smDrawerHead" },
-            h(
-              "div",
-              { className: "smDrawerTitleWrap" },
-              h("h2", { className: "smDrawerTitle" }, title),
-              subtitle
-                ? h(
-                    "div",
-                    { className: "smDrawerMetaRow" },
-                    h("div", { className: "smDrawerMeta smMono" }, subtitle),
-                    onLocate
-                      ? h(
-                          "button",
-                          {
-                            type: "button",
-                            className: "smIconBtn smIconBtnTiny",
-                            title: t("showInFiles"),
-                            "aria-label": t("showInFiles"),
-                            onClick: onLocate,
-                          },
-                          h(IconFolder, { size: 13 })
-                        )
-                      : null
-                  )
-                : null
-            ),
-            h("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": t("close") }, h(IconClose, { size: 15 }))
-          ),
-          h("div", { className: "smDrawerBody" }, children)
-        )
-      );
-    }
-
-    /** 抽屉里的摘要层：译文 + 来源 + 重翻，技能和工具共用。 */
-    function SummarySection({ t, entry, busy, target, onRetranslate, children }) {
-      const modelLabel = entry?.model || (target ? `${target.provider}/${target.model}` : "");
-      return h(
-        "section",
-        { className: "smSummary" },
-        h("div", { className: "smSummaryLabel" }, t("summaryLabel")),
-        h("p", { className: "smSummaryText" }, children),
-        h(
-          "div",
-          { className: "smSummaryMeta" },
-          h(TransTag, { t, entry, busy }),
-          modelLabel && !busy ? h("span", { className: "smMono", style: { fontSize: 11 } }, modelLabel) : null,
-          h(
-            "button",
-            { type: "button", className: "smLinkBtn", disabled: busy, onClick: onRetranslate },
-            busy ? `${t("transBusy")}…` : t("retranslate")
-          )
-        )
-      );
-    }
-
-    function SourceDivider({ label }) {
-      return h(
-        React.Fragment,
-        null,
-        h("div", { className: "smSummaryDivider" }),
-        h("div", { className: "smSummaryLabel", style: { marginBottom: 10 } }, label)
-      );
-    }
-
-    function SkillDrawer({ skill, t, entry, busy, target, onRetranslate, onClose, onLocate }) {
-      const [body, setBody] = useState(null);
-      const [error, setError] = useState("");
-      const [loading, setLoading] = useState(true);
-
-      useEffect(() => {
-        let alive = true;
-        (async () => {
-          try {
-            const url = `/api/service-manager/skills/content?path=${encodeURIComponent(skill.path)}`;
-            const response = await fetch(url, { credentials: "same-origin" });
+        const styleTag = (id, css) => React.createElement("style", { "data-smd": id, dangerouslySetInnerHTML: { __html: css } });
+        /* ------------------------------------------------------------------ 工具 */
+        const request = async (url, init) => {
+            const response = await fetch(url, { credentials: "same-origin", ...init });
+            if (!response.ok)
+                throw new Error(`HTTP ${response.status}`);
             const payload = await response.json();
-            if (!alive) return;
-            if (payload.ok === false) throw new Error(payload.error || "读取失败");
-            setBody(payload.body ?? "");
-          } catch (err) {
-            if (alive) setError(err.message);
-          } finally {
-            if (alive) setLoading(false);
-          }
-        })();
-        return () => {
-          alive = false;
+            if (payload && payload.ok === false)
+                throw new Error(payload.error || "请求失败");
+            return payload;
         };
-      }, [skill.path]);
-
-      return h(
-        DrawerShell,
-        { t, title: skill.name, subtitle: skill.path, onClose, onLocate },
-        h(SummarySection, { t, entry, busy, target, onRetranslate }, entry?.zh || skill.description || "—"),
-        h(SourceDivider, { label: t("sourceLabel") }),
-        loading
-          ? h("div", { className: "smSkeleton", style: { height: 120, borderRadius: 8 } })
-          : error
-            ? h("div", { className: "smBanner" }, h("div", { className: "smBannerText" }, h("span", { className: "smBannerBody" }, error)))
-            : h("div", { className: "smMd" }, ...renderMarkdown(body))
-      );
-    }
-
-    function ToolDrawer({ tool, server, t, entry, busy, target, entries, onRetranslate, onClose }) {
-      const params = tool.params ?? [];
-      return h(
-        DrawerShell,
-        { t, title: tool.name, subtitle: `${server.serverName} · ${server.endpoint}`, onClose },
-        h(SummarySection, { t, entry, busy, target, onRetranslate }, entry?.zh || tool.description || "—"),
-        params.length
-          ? h(
-              React.Fragment,
-              null,
-              h(SourceDivider, { label: t("paramsLabel") }),
-              h(
-                "div",
-                { className: "smParams" },
-                params.map((param) => {
-                  const text = entries?.[paramKeyOf(server, tool, param)]?.zh || param.description || "";
-                  return h(
-                    "div",
-                    { key: param.name, className: "smParam" },
-                    h(
-                      "div",
-                      { className: "smParamHead" },
-                      h("span", { className: "smParamName" }, param.name),
-                      h("span", { className: "smParamType" }, param.type),
-                      param.required ? h("span", { className: "smParamReq" }, t("required")) : null
-                    ),
-                    text ? h("p", { className: "smParamDesc" }, text) : null
-                  );
-                })
-              )
-            )
-          : null
-      );
-    }
-
-    /* ------------------------------------------------------------------ 组件 */
-
-    function StatusBadge({ server, t }) {
-      const tone = STATUS_TONE[server.status] ?? "";
-      const label =
-        {
-          connected: t("statusConnected"),
-          configured: t("statusConfigured"),
-          idle: t("statusConfigured"),
-          disabled: t("statusDisabled"),
-          failed: t("statusFailed"),
-        }[server.status] ?? t("statusConfigured");
-      return h("span", { className: "smStatus" }, h("i", { className: "smDot", "data-tone": tone }), label);
-    }
-
-    function ToolRow({ tool, t, entry, busy, onOpen }) {
-      const text = entry?.zh || tool.description || "";
-      return h(
-        "button",
-        {
-          type: "button",
-          className: "smToolRow",
-          onClick: () => onOpen(tool),
-          "aria-label": `${tool.name} ${t("summaryLabel")}`,
-        },
-        h("span", { className: "smToolRowName" }, tool.name),
-        h(
-          "span",
-          { className: "smToolRowDesc", "data-empty": !text, title: tool.description || "" },
-          text || t("toolNoDesc")
-        ),
-        h(TransTag, { t, entry, busy })
-      );
-    }
-
-    function ServerRow({ server, t, onToggle, onRemove, onEdit, onOpen, busy, open, entries, pending, onOpenTool }) {
-      const tools = server.tools ?? [];
-      const count = server.toolCount;
-      return h(
-        "div",
-        { className: "smRowWrap", "data-open": open },
-        h(
-          "div",
-          {
-            className: "smRow",
-            "data-expandable": "true",
-            role: "button",
-            tabIndex: 0,
-            "aria-expanded": open,
-            onClick: () => onOpen(server.id),
-            onKeyDown: (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onOpen(server.id);
-              }
-            },
-          },
-          h("span", { className: "smRowChevron", "data-open": open, "aria-hidden": "true" }, h(IconChevron, { size: 12 })),
-          h(
-            "div",
-            { className: "smName" },
-            h(
-              "div",
-              { className: "smNameMain" },
-              h("span", { className: "smNameText" }, server.serverName),
-              server.managed ? null : h("span", { className: "smTag" }, t("externalNote"))
-            ),
-            server.note ? h("div", { className: "smNameNote" }, server.note) : null
-          ),
-          h(
-            "div",
-            { className: "smEndpoint" },
-            h("span", { className: "smTag" }, server.transport === "stdio" ? "stdio" : "http"),
-            h("span", { className: "smEndpointText smMono", title: server.endpoint }, endpointOf(server))
-          ),
-          h(StatusBadge, { server, t }),
-          h("div", { className: "smTools", "data-empty": count == null }, count == null ? "–" : String(count)),
-          h(
-            "div",
-            { className: "smActions", onClick: (event) => event.stopPropagation() },
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smIconBtn",
-                title: t("edit"),
-                "aria-label": `${t("edit")} ${server.serverName}`,
-                onClick: () => onEdit(server),
-              },
-              h(IconEdit, { size: 14 })
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smIconBtn smIconBtnDanger",
-                title: t("remove"),
-                "aria-label": `${t("remove")} ${server.serverName}`,
-                onClick: () => onRemove(server),
-              },
-              h(IconTrash, { size: 14 })
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smSwitch",
-                role: "switch",
-                "aria-checked": server.enabled,
-                "aria-label": `${server.enabled ? t("disable") : t("enable")} ${server.serverName}`,
-                disabled: busy,
-                onClick: () => onToggle(server),
-              },
-              h("span", null)
-            )
-          )
-        ),
-        open
-          ? h(
-              "div",
-              { className: "smDetail" },
-              server.transport === "stdio" && server.cwd
-                ? h("div", { className: "smDetailHead" }, h("span", null, t("fieldCwd")), h("span", { className: "smMono" }, server.cwd))
-                : null,
-              tools.length
-                ? h(
-                    "div",
-                    { className: "smToolRows" },
-                    tools.map((tool) =>
-                      h(ToolRow, {
-                        key: tool.name,
-                        tool,
-                        t,
-                        entry: entries?.[toolKeyOf(server, tool)],
-                        busy: Boolean(pending?.[toolKeyOf(server, tool)]),
-                        onOpen: (target) => onOpenTool(server, target),
-                      })
-                    )
-                  )
-                : h(
-                    "div",
-                    { className: "smHint" },
-                    server.enabled ? t("toolPending") : t("toolDisabled")
-                  )
-            )
-          : null
-      );
-    }
-
-    function EmptyState({ t, onAdd, onOpen }) {
-      return h(
-        "div",
-        { className: "smEmpty" },
-        h("div", { className: "smEmptyIcon" }, h(IconServer, { size: 22 })),
-        h("h3", { className: "smEmptyTitle" }, t("emptyTitle")),
-        h("p", { className: "smEmptyBody" }, t("emptyBody")),
-        h(
-          "div",
-          { className: "smEmptyActions" },
-          h("button", { type: "button", className: "smBtn smBtnPrimary", onClick: onAdd }, h(IconPlus, { size: 14 }), t("emptyAdd")),
-          h("button", { type: "button", className: "smBtn", onClick: onOpen }, h(IconExternal, { size: 14 }), t("emptyOpen"))
-        )
-      );
-    }
-
-    function ServerForm({ t, initial, onClose, onSaved }) {
-      const [transport, setTransport] = useState(initial?.transport ?? "stdio");
-      const [serverName, setServerName] = useState(initial?.serverName ?? "");
-      const [command, setCommand] = useState(initial?.endpoint?.split(" ")[0] ?? "");
-      const [args, setArgs] = useState("");
-      const [cwd, setCwd] = useState(initial?.cwd ?? "");
-      const [url, setUrl] = useState(initial?.transport === "streamable-http" ? initial.endpoint : "");
-      const [pairs, setPairs] = useState(() =>
-        Object.entries((initial?.transport === "streamable-http" ? initial?.headers : initial?.env) ?? {}).map(([k, v]) => ({
-          k,
-          v: String(v),
-        }))
-      );
-      const [note, setNote] = useState(initial?.note ?? "");
-      const [presetId, setPresetId] = useState("");
-      const [saving, setSaving] = useState(false);
-      const [error, setError] = useState("");
-
-      const applyPreset = (id) => {
-        setPresetId(id);
-        const preset = PRESETS.find((item) => item.id === id);
-        if (!preset) return;
-        const values = preset.values;
-        setServerName(values.serverName ?? "");
-        setTransport(values.transport ?? "stdio");
-        setCommand(values.command ?? "");
-        setArgs(values.args ?? "");
-        setCwd(values.cwd ?? "");
-        setUrl(values.url ?? "");
-        setNote(values.note ?? "");
-        setPairs((values.env ?? values.headers ?? []).map((item) => ({ ...item })));
-      };
-
-      const submit = async () => {
-        setSaving(true);
-        setError("");
-        try {
-          const kv = {};
-          for (const pair of pairs) {
-            const key = pair.k.trim();
-            if (!key) continue;
-            kv[key] = pair.v;
-          }
-          const body = {
-            serverName,
-            transport,
-            note,
-            ...(transport === "stdio"
-              ? { command, args: args.split("\n").map((s) => s.trim()).filter(Boolean), cwd, env: kv }
-              : { url, headers: kv }),
-          };
-          const payload = await request("/api/service-manager/mcp/save", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          onSaved(payload);
-        } catch (err) {
-          setError(err.message);
-        } finally {
-          setSaving(false);
-        }
-      };
-
-      return h(
-        "div",
-        { className: "smMask", onMouseDown: (e) => e.target === e.currentTarget && onClose() },
-        h(
-          "div",
-          { className: "smModal", role: "dialog", "aria-modal": "true" },
-          h(
-            "div",
-            { className: "smModalHead" },
-            h("h2", { className: "smModalTitle" }, initial ? t("formTitleEdit") : t("formTitleNew")),
-            h(
-              "button",
-              { type: "button", className: "smIconBtn", onClick: onClose, "aria-label": t("cancel") },
-              h("span", { style: { fontSize: 16, lineHeight: 1 } }, "×")
-            )
-          ),
-          h(
-            "div",
-            { className: "smModalBody" },
-            initial
-              ? null
-              : h(
-                  "div",
-                  { className: "smField" },
-                  h("label", { className: "smLabel" }, t("presetLabel")),
-                  h(
-                    "select",
-                    {
-                      className: "smInput",
-                      value: presetId,
-                      onChange: (event) => applyPreset(event.target.value),
-                    },
-                    h("option", { value: "" }, t("presetNone")),
-                    PRESETS.map((preset) => h("option", { key: preset.id, value: preset.id }, t(preset.labelKey)))
-                  )
-                ),
-            h(
-              "div",
-              { className: "smField" },
-              h("label", { className: "smLabel" }, t("fieldName")),
-              h("input", {
-                className: "smInput",
-                value: serverName,
-                onChange: (e) => setServerName(e.target.value),
-                placeholder: "github",
-                disabled: Boolean(initial),
-              }),
-              h("div", { className: "smHint" }, t("fieldNameHint"))
-            ),
-            h(
-              "div",
-              { className: "smField" },
-              h("label", { className: "smLabel" }, t("fieldTransport")),
-              h(
-                "div",
-                { className: "smSeg" },
-                ["stdio", "streamable-http"].map((value) =>
-                  h(
-                    "button",
-                    {
-                      key: value,
-                      type: "button",
-                      className: "smSegBtn",
-                      "aria-pressed": transport === value,
-                      onClick: () => setTransport(value),
-                    },
-                    value === "stdio" ? "stdio" : "HTTP"
-                  )
-                )
-              )
-            ),
-            transport === "stdio"
-              ? [
-                  h(
-                    "div",
-                    { className: "smField", key: "cmd" },
-                    h("label", { className: "smLabel" }, t("fieldCommand")),
-                    h("input", { className: "smInput smMono", value: command, onChange: (e) => setCommand(e.target.value), placeholder: "npx" })
-                  ),
-                  h(
-                    "div",
-                    { className: "smField", key: "args" },
-                    h("label", { className: "smLabel" }, t("fieldArgs")),
-                    h("textarea", {
-                      className: "smTextarea",
-                      value: args,
-                      onChange: (e) => setArgs(e.target.value),
-                      placeholder: "-y\n@modelcontextprotocol/server-github",
-                    }),
-                    h("div", { className: "smHint" }, t("fieldArgsHint"))
-                  ),
-                  h(
-                    "div",
-                    { className: "smField", key: "cwd" },
-                    h("label", { className: "smLabel" }, t("fieldCwd")),
-                    h("input", { className: "smInput smMono", value: cwd, onChange: (e) => setCwd(e.target.value), placeholder: "D:\\work" }),
-                    h("div", { className: "smWarning" }, t("fieldCwdHint"))
-                  ),
-                ]
-              : h(
-                  "div",
-                  { className: "smField" },
-                  h("label", { className: "smLabel" }, t("fieldUrl")),
-                  h("input", { className: "smInput smMono", value: url, onChange: (e) => setUrl(e.target.value), placeholder: "https://example.com/mcp" })
-                ),
-            h(
-              "div",
-              { className: "smField" },
-              h("label", { className: "smLabel" }, transport === "stdio" ? t("fieldEnv") : t("fieldHeaders")),
-              h(
-                "div",
-                { className: "smKV" },
-                pairs.map((pair, index) =>
-                  h(
-                    "div",
-                    { key: index, className: "smKVRow" },
-                    h("input", {
-                      className: "smInput smMono",
-                      value: pair.k,
-                      placeholder: transport === "stdio" ? "GITHUB_TOKEN" : "Authorization",
-                      "aria-label": t("keyLabel"),
-                      onChange: (event) =>
-                        setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, k: event.target.value } : item))),
-                    }),
-                    h("input", {
-                      className: "smInput smMono",
-                      value: pair.v,
-                      placeholder: transport === "stdio" ? "ghp_…" : "Bearer …",
-                      "aria-label": t("valueLabel"),
-                      onChange: (event) =>
-                        setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, v: event.target.value } : item))),
-                    }),
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "smKVRemove",
-                        "aria-label": t("removePair"),
-                        onClick: () => setPairs((prev) => prev.filter((_, i) => i !== index)),
-                      },
-                      h(IconClose, { size: 12 })
-                    )
-                  )
-                ),
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "smKVAdd",
-                    onClick: () => setPairs((prev) => [...prev, { k: "", v: "" }]),
-                  },
-                  h(IconPlus, { size: 12 }),
-                  t("addPair")
-                )
-              ),
-              h("div", { className: "smHint" }, transport === "stdio" ? t("fieldEnvHint") : t("fieldHeadersHint"))
-            ),
-            h(
-              "div",
-              { className: "smField" },
-              h("label", { className: "smLabel" }, t("fieldNote")),
-              h("input", { className: "smInput", value: note, onChange: (e) => setNote(e.target.value) }),
-              h("div", { className: "smHint" }, t("fieldNoteHint"))
-            ),
-            h("div", { className: "smHint", style: { marginTop: -2 } }, t("envRefHint")),
-            error ? h("div", { className: "smBanner" }, h("div", { className: "smBannerText" }, h("span", { className: "smBannerBody" }, error))) : null
-          ),
-          h(
-            "div",
-            { className: "smModalFoot" },
-            h("button", { type: "button", className: "smBtn smBtnGhost", onClick: onClose }, t("cancel")),
-            h("button", { type: "button", className: "smBtn smBtnPrimary", onClick: submit, disabled: saving }, saving ? t("saving") : t("save"))
-          )
-        )
-      );
-    }
-
-    function McpView({ t, state, reload, notify }) {
-      const [query, setQuery] = useState("");
-      const [editing, setEditing] = useState(null);
-      const [busyId, setBusyId] = useState(null);
-      const [pendingRemove, setPendingRemove] = useState(null);
-      const [openId, setOpenId] = useState(null);
-      const [activeTool, setActiveTool] = useState(null);
-
-      const [catalog, setCatalog] = useState(null);
-      const [target, setTarget] = useState(null);
-      const [entries, setEntries] = useState({});
-      const [pending, setPending] = useState({});
-      const [notice, setNotice] = useState("");
-      const [refreshing, setRefreshing] = useState(false);
-
-      const servers = state.servers ?? [];
-      const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return servers;
-        return servers.filter(
-          (s) => s.serverName.toLowerCase().includes(q) || (s.endpoint ?? "").toLowerCase().includes(q)
-        );
-      }, [servers, query]);
-
-      const targetRef = useRef(null);
-      useEffect(() => {
-        targetRef.current = target;
-      }, [target]);
-
-      useEffect(() => {
-        let alive = true;
-        (async () => {
-          try {
-            const payload = await request("/api/service-manager/models");
-            if (!alive) return;
-            setCatalog(payload);
-            if (payload.selected) setTarget(payload.selected);
-          } catch {
-            if (alive) setCatalog({ providers: [], failures: [] });
-          }
-        })();
-        return () => {
-          alive = false;
+        /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
+        const shortClock = (iso) => {
+            const date = iso ? new Date(iso) : null;
+            if (!date || Number.isNaN(date.getTime()))
+                return "";
+            const pad = (value) => String(value).padStart(2, "0");
+            return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
         };
-      }, []);
-
-      const modelOptions = useMemo(() => {
-        const out = [];
-        for (const provider of catalog?.providers ?? []) {
-          for (const model of provider.models ?? []) {
-            out.push({ key: `${provider.id}::${model.id}`, label: `${model.name} · ${provider.name}` });
-          }
-        }
-        return out;
-      }, [catalog]);
-
-      const selectedKey = target ? `${target.provider}::${target.model}` : "";
-      const selectedMissing = Boolean(selectedKey) && !modelOptions.some((option) => option.key === selectedKey);
-
-      const markPending = (ids, value) =>
-        setPending((prev) => {
-          const next = { ...prev };
-          for (const id of ids) {
-            if (value) next[id] = true;
-            else delete next[id];
-          }
-          return next;
-        });
-
-      /* 工具摘要翻译：和技能共用同一套磁盘缓存与模型选择；分批回来分批渲染 */
-      const translate = async (items, options = {}) => {
-        if (!items.length) return;
-        const model = options.model ?? targetRef.current ?? null;
-        for (let start = 0; start < items.length; start += 5) {
-          const slice = items.slice(start, start + 5);
-          const ids = slice.map((item) => item.id);
-          markPending(ids, true);
-          try {
-            const payload = await request("/api/service-manager/skills/translate", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ items: slice, force: options.force === true, ...(model ? { model } : {}) }),
-            });
-            setEntries((prev) => ({ ...prev, ...(payload.results ?? {}) }));
-            setNotice(payload.modelError ? String(payload.modelError) : "");
-          } catch (err) {
-            setNotice(String(err.message ?? err));
-          } finally {
-            markPending(ids, false);
-          }
-        }
-      };
-
-      const openServer = servers.find((server) => server.id === openId) ?? null;
-      const openTools = openServer?.tools ?? [];
-
-      /* 展开一台服务器时，要翻的是「工具描述 + 每个参数的说明」 */
-      const collectUnits = (server) => {
-        const units = [];
-        for (const tool of server?.tools ?? []) {
-          if (tool.description) units.push({ id: toolKeyOf(server, tool), text: tool.description });
-          for (const param of tool.params ?? []) {
-            if (param.description) units.push({ id: paramKeyOf(server, tool, param), text: param.description });
-          }
-        }
-        return units;
-      };
-
-      const openKey = openServer ? `${openServer.id}|${collectUnits(openServer).map((unit) => unit.id).join(",")}` : "";
-      const lastOpenKey = useRef("");
-
-      /* 展开才翻译：没展开的服务器不发模型请求 */
-      useEffect(() => {
-        if (!openServer || !openKey) return;
-        if (lastOpenKey.current === openKey) return;
-        lastOpenKey.current = openKey;
-        const items = collectUnits(openServer);
-        if (!items.length) return;
-        let alive = true;
-        (async () => {
-          let cached = {};
-          try {
-            const payload = await request("/api/service-manager/skills/translate", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ items, cachedOnly: true }),
-            });
-            cached = payload.results ?? {};
-            if (alive) setEntries((prev) => ({ ...prev, ...cached }));
-          } catch {
-            /* 读缓存失败就当作全都没翻过 */
-          }
-          if (!alive) return;
-          const missing = items.filter((item) => !cached[item.id]?.zh);
-          if (missing.length) await translate(missing, { force: false });
-        })();
-        return () => {
-          alive = false;
-        };
-      }, [openKey]);
-
-      const retranslateOpenTools = async (model) => {
-        if (!openServer) return;
-        const items = collectUnits(openServer);
-        if (!items.length) return;
-        await translate(items, { force: true, model });
-      };
-
-      const changeModel = async (value) => {
-        const [provider, model] = String(value).split("::");
-        if (!provider || !model) return;
-        const next = { provider, model };
-        setTarget(next);
-        try {
-          await request("/api/service-manager/models", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(next),
-          });
-        } catch {
-          /* 保存失败只影响下次默认值 */
-        }
-        await retranslateOpenTools(next);
-      };
-
-      /* 写盘后 MCP 是后台重连的，轮询到重连结束再拉一次列表 */
-      const waitForRefresh = async (since) => {
-        setRefreshing(true);
-        try {
-          for (let attempt = 0; attempt < 20; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 400));
-            let payload;
-            try {
-              payload = await request("/api/service-manager/mcp");
-            } catch {
-              break;
+        const endpointOf = (server) => {
+            if (!server.endpoint)
+                return "—";
+            if (server.transport === "stdio") {
+                const short = server.endpoint.replace(/^.*[\\/]/, "");
+                return short.length > 64 ? short.slice(0, 61) + "…" : short;
             }
-            const info = payload?.refresh ?? {};
-            if (!info.running && (info.at ?? 0) >= since - 5000) break;
-          }
-        } finally {
-          setRefreshing(false);
-        }
-        await reload();
-      };
-
-      const toggle = async (server) => {
-        const since = Date.now();
-        setBusyId(server.id);
-        try {
-          await request("/api/service-manager/mcp/toggle", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ id: server.id, enabled: !server.enabled }),
-          });
-          await reload();
-          void waitForRefresh(since);
-        } catch (err) {
-          notify(err.message);
-        } finally {
-          setBusyId(null);
-        }
-      };
-
-      const remove = async () => {
-        const server = pendingRemove;
-        const since = Date.now();
-        setPendingRemove(null);
-        setBusyId(server.id);
-        try {
-          await request("/api/service-manager/mcp/delete", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ id: server.id }),
-          });
-          if (openId === server.id) setOpenId(null);
-          await reload();
-          void waitForRefresh(since);
-        } catch (err) {
-          notify(err.message);
-        } finally {
-          setBusyId(null);
-        }
-      };
-
-      const openConfig = async () => {
-        try {
-          await request("/api/service-manager/open", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ kind: "file" }),
-          });
-        } catch (err) {
-          notify(err.message);
-        }
-      };
-
-      if (state.loading && !servers.length) {
-        return h("div", { className: "smTable" }, [0, 1, 2].map((i) => h("div", { key: i, className: "smSkeleton" })));
-      }
-
-      if (!servers.length) {
-        return h(EmptyState, { t, onAdd: () => setEditing({ mode: "new" }), onOpen: openConfig });
-      }
-
-      return h(
-        React.Fragment,
-        null,
-        h(
-          "div",
-          { className: "smControls" },
-          h(
-            "div",
-            { className: "smToolbar" },
-            h(
-              "label",
-              { className: "smSearch" },
-              h(IconSearch, { size: 14 }),
-              h("input", {
-                value: query,
-                onChange: (e) => setQuery(e.target.value),
-                placeholder: t("search"),
-                "aria-label": t("search"),
-              })
-            ),
-            h("span", { className: "smHint" }, `${filtered.length} / ${servers.length}`),
-            openTools.length
-              ? h(
-                  React.Fragment,
-                  null,
-                  h("span", { className: "smToolbarDivider", "aria-hidden": "true" }),
-            h("span", { className: "smModelPick", title: t("translateModelHint") }, t("translateModel")),
-                  h(
-                    "select",
-                    {
-                      className: "smSelect",
-                      value: selectedKey,
-                      disabled: !modelOptions.length,
-                      title: t("translateModelHint"),
-                      "aria-label": t("translateModel"),
-                      onChange: (event) => changeModel(event.target.value),
-                    },
-                    selectedMissing || !modelOptions.length
-                      ? h("option", { value: selectedKey }, target ? `${target.model} · ${target.provider}` : t("noModel"))
-                      : null,
-                    modelOptions.map((option) => h("option", { key: option.key, value: option.key }, option.label))
-                  )
-                )
-              : null,
-            h(
-              "button",
-              { type: "button", className: "smBtn smBtnPrimary", onClick: () => setEditing({ mode: "new" }) },
-              h(IconPlus, { size: 14 }),
-              t("add")
-            )
-          ),
-          refreshing
-            ? h(
-                "div",
-                { className: "smNotice", "data-tone": "business", role: "status" },
-                h("i", { className: "smNoticeDot" }),
-                h("span", { className: "smNoticeText" }, t("reconnecting"))
-              )
-            : notice
-              ? h(
-                  "div",
-                  { className: "smNotice", role: "status" },
-                  h("i", { className: "smNoticeDot" }),
-                  h("span", { className: "smNoticeText", title: notice }, t("toolTransFailed"))
-                )
-              : null
-        ),
-        h(
-          "div",
-          { className: "smTable" },
-          h(
-            "div",
-            { className: "smTHead" },
-            h("span", null, t("colName")),
-            h("span", null, t("colEndpoint")),
-            h("span", null, t("colStatus")),
-            h("span", null, t("colTools")),
-            h("span", null)
-          ),
-          filtered.map((server) =>
-            h(ServerRow, {
-              key: server.id,
-              server,
-              t,
-              busy: busyId === server.id,
-              open: openId === server.id,
-              entries,
-              pending,
-              onOpen: (id) => setOpenId((prev) => (prev === id ? null : id)),
-              onToggle: toggle,
-              onRemove: setPendingRemove,
-              onEdit: (target2) => setEditing({ mode: "edit", server: target2 }),
-              onOpenTool: (serverRef, tool) => setActiveTool({ server: serverRef, tool }),
-            })
-          )
-        ),
-        filtered.length
-          ? null
-          : h(
-              "div",
-              { className: "smEmpty", style: { padding: "40px 24px" } },
-              h("p", { className: "smEmptyBody" }, t("searchNoResult"))
-            ),
-        editing
-          ? h(ServerForm, {
-              t,
-              initial: editing.server ?? null,
-              onClose: () => setEditing(null),
-              onSaved: () => {
-                const since = Date.now();
-                setEditing(null);
-                void reload();
-                void waitForRefresh(since);
-              },
-            })
-          : null,
-        activeTool
-          ? h(ToolDrawer, {
-              tool: activeTool.tool,
-              server: activeTool.server,
-              t,
-              entries,
-              entry: entries[toolKeyOf(activeTool.server, activeTool.tool)],
-              busy: Boolean(pending[toolKeyOf(activeTool.server, activeTool.tool)]),
-              target,
-              onRetranslate: () =>
-                translate([{ id: toolKeyOf(activeTool.server, activeTool.tool), text: activeTool.tool.description }], {
-                  force: true,
-                }),
-              onClose: () => setActiveTool(null),
-            })
-          : null,
-        pendingRemove
-          ? h(
-              "div",
-              { className: "smMask", onMouseDown: (e) => e.target === e.currentTarget && setPendingRemove(null) },
-              h(
-                "div",
-                { className: "smModal", role: "dialog", "aria-modal": "true", style: { maxWidth: 440 } },
-                h("div", { className: "smModalHead" }, h("h2", { className: "smModalTitle" }, `${t("remove")} ${pendingRemove.serverName}`)),
-                h("div", { className: "smModalBody" }, h("p", { className: "smHint" }, t("removeConfirm"))),
-                h(
-                  "div",
-                  { className: "smModalFoot" },
-                  h("button", { type: "button", className: "smBtn smBtnGhost", onClick: () => setPendingRemove(null) }, t("cancel")),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "smBtn smBtnPrimary",
-                      style: { background: "var(--dsw-alias-state-error-primary)", color: "#fff" },
-                      onClick: remove,
-                    },
-                    t("confirmRemove")
-                  )
-                )
-              )
-            )
-          : null
-      );
-    }
-
-    function SkillView({ t, state, reload, notify }) {
-      const [query, setQuery] = useState("");
-      const [pendingDelete, setPendingDelete] = useState(null);
-      const [activeSkill, setActiveSkill] = useState(null);
-      const [busy, setBusy] = useState(false);
-
-      const [catalog, setCatalog] = useState(null);
-      const [catalogReady, setCatalogReady] = useState(false);
-      const [target, setTarget] = useState(null);
-      const [entries, setEntries] = useState({});
-      const [pendingIds, setPendingIds] = useState({});
-      const [notice, setNotice] = useState("");
-      const [translateBusy, setTranslateBusy] = useState(false);
-      const [view, setView] = useState("zh");
-
-      const skills = state.skills ?? [];
-
-      /* 只把技能名发给 Host，由 Host 用它自己扫描到的路径去打开——
-         客户端不传绝对路径，避免变成任意文件读取/打开的通道 */
-      const locateSkill = async (skill) => {
-        try {
-          await request("/api/service-manager/open", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ kind: "skill", name: skill.name }),
-          });
-        } catch (err) {
-          notify(err.message);
-        }
-      };
-
-      /* 只有英文描述才需要翻译；已经是中文的跳过 */
-      const translatable = useMemo(
-        () => skills.filter((skill) => skill.description && !/[\u4e00-\u9fff]/.test(skill.description)),
-        [skills]
-      );
-      const skillsKey = useMemo(
-        () => skills.map((skill) => `${skill.path}\u0000${skill.description ?? ""}`).join("\u0001"),
-        [skills]
-      );
-
-      const targetRef = useRef(null);
-      useEffect(() => {
-        targetRef.current = target;
-      }, [target]);
-
-      /* 模型目录：等价于官方 GUI 的模型列表，只取 id / 名字 */
-      useEffect(() => {
-        let alive = true;
-        (async () => {
-          try {
-            const payload = await request("/api/service-manager/models");
-            if (!alive) return;
-            setCatalog(payload);
-            if (payload.selected) setTarget(payload.selected);
-          } catch (err) {
-            if (alive) setCatalog({ providers: [], failures: [{ id: "-", message: err.message }] });
-          } finally {
-            if (alive) setCatalogReady(true);
-          }
-        })();
-        return () => {
-          alive = false;
+            return server.endpoint;
         };
-      }, []);
-
-      const markPending = (ids, value) =>
-        setPendingIds((prev) => {
-          const next = { ...prev };
-          for (const id of ids) {
-            if (value) next[id] = true;
-            else delete next[id];
-          }
-          return next;
-        });
-
-      /* 翻译一批技能。译文由 Host 落盘到 translations.json，刷新后仍在。 */
-      /* 分批请求，每批回来就渲染——首屏不用等全部翻完。
-         本地模型代理是串行的，一次发 13 条只会让所有卡片一起干等。 */
-      const TRANSLATE_CHUNK = 5;
-
-      const translate = async (list, options = {}) => {
-        const items = list
-          .filter((skill) => skill.description)
-          .map((skill) => ({ id: skill.path, text: skill.description }));
-        if (!items.length) return;
-        const model = options.model ?? targetRef.current ?? null;
-        for (let start = 0; start < items.length; start += TRANSLATE_CHUNK) {
-          const slice = items.slice(start, start + TRANSLATE_CHUNK);
-          const ids = slice.map((item) => item.id);
-          markPending(ids, true);
-          try {
-            const payload = await request("/api/service-manager/skills/translate", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ items: slice, force: options.force === true, ...(model ? { model } : {}) }),
-            });
-            setEntries((prev) => ({ ...prev, ...(payload.results ?? {}) }));
-            setNotice(payload.modelError ? String(payload.modelError) : "");
-          } catch (err) {
-            setNotice(String(err.message ?? err));
-          } finally {
-            markPending(ids, false);
-          }
-        }
-      };
-
-      const initialKey = useRef("");
-      useEffect(() => {
-        if (!catalogReady || !translatable.length) return;
-        if (initialKey.current === skillsKey) return;
-        initialKey.current = skillsKey;
-        let alive = true;
-        (async () => {
-          const items = translatable.map((skill) => ({ id: skill.path, text: skill.description }));
-          let cached = {};
-          try {
-            const payload = await request("/api/service-manager/skills/translate", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ items, cachedOnly: true }),
-            });
-            cached = payload.results ?? {};
-            if (alive) setEntries((prev) => ({ ...prev, ...cached }));
-          } catch {
-            /* 读缓存失败就当作全都没翻过 */
-          }
-          if (!alive) return;
-          const missing = translatable.filter((skill) => !cached[skill.path]?.zh);
-          if (missing.length) await translate(missing, { force: false });
-        })();
-        return () => {
-          alive = false;
+        const STATUS_TONE = {
+            connected: "success",
+            configured: "warn",
+            idle: "warn",
+            disabled: "",
+            failed: "error",
         };
-      }, [catalogReady, skillsKey, translatable]);
-
-      const modelOptions = useMemo(() => {
-        const out = [];
-        for (const provider of catalog?.providers ?? []) {
-          for (const model of provider.models ?? []) {
-            out.push({ key: `${provider.id}::${model.id}`, label: `${model.name} · ${provider.name}` });
-          }
-        }
-        return out;
-      }, [catalog]);
-
-      const selectedKey = target ? `${target.provider}::${target.model}` : "";
-      const selectedMissing = Boolean(selectedKey) && !modelOptions.some((option) => option.key === selectedKey);
-
-      const changeModel = async (value) => {
-        const [provider, model] = String(value).split("::");
-        if (!provider || !model) return;
-        const next = { provider, model };
-        setTarget(next);
-        try {
-          await request("/api/service-manager/models", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(next),
-          });
-        } catch {
-          /* 保存失败只影响下次默认值，不影响本次翻译 */
-        }
-        setTranslateBusy(true);
-        await translate(translatable, { force: true, model: next });
-        setTranslateBusy(false);
-      };
-
-      const retranslateAll = async () => {
-        setTranslateBusy(true);
-        await translate(translatable, { force: true });
-        setTranslateBusy(false);
-      };
-
-      /* 摘要统计：决定顶部提示条说什么，以及「重试」重翻哪些 */
-      const tally = useMemo(() => {
-        const out = { model: 0, machine: 0, none: 0, waiting: 0, retry: [] };
-        for (const skill of translatable) {
-          if (pendingIds[skill.path]) {
-            out.waiting += 1;
-            continue;
-          }
-          const engine = entries[skill.path]?.engine;
-          if (engine === "model") out.model += 1;
-          else if (engine === "machine") {
-            out.machine += 1;
-            out.retry.push(skill);
-          } else if (engine === "none") {
-            out.none += 1;
-            out.retry.push(skill);
-          }
-        }
-        return out;
-      }, [translatable, entries, pendingIds]);
-
-      const noticeText = tally.waiting
-        ? t("noticeWaiting").replace("{n}", String(tally.waiting))
-        : tally.none
-          ? t("noticeNone").replace("{n}", String(tally.none))
-          : tally.machine
-            ? t("noticeMachine").replace("{n}", String(tally.machine))
-            : notice;
-      const noticeTone = tally.waiting ? "business" : "warn";
-
-      const retryFailed = async () => {
-        if (!tally.retry.length) return;
-        setTranslateBusy(true);
-        await translate(tally.retry, { force: true });
-        setTranslateBusy(false);
-      };
-
-      const filtered = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return skills;
-        return skills.filter((skill) => skill.name.toLowerCase().includes(q));
-      }, [skills, query]);
-
-      const removeSkill = async () => {
-        const skill = pendingDelete;
-        setPendingDelete(null);
-        setBusy(true);
-        try {
-          await request("/api/service-manager/skills/delete", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ path: skill.path }),
-          });
-          await reload();
-        } catch (err) {
-          notify(err.message);
-        } finally {
-          setBusy(false);
-        }
-      };
-
-      if (state.loading && !state.skills) {
-        return h("div", { className: "smCards" }, [0, 1, 2, 3].map((i) => h("div", { key: i, className: "smSkeleton", style: { borderRadius: 12, height: 116 } })));
-      }
-
-      if (!skills.length) {
-        return h(
-          "div",
-          { className: "smEmpty" },
-          h("div", { className: "smEmptyIcon" }, h(IconServer, { size: 22 })),
-          h("h3", { className: "smEmptyTitle" }, t("skillEmpty")),
-          h("p", { className: "smEmptyBody" }, t("skillEmptyBody"))
-        );
-      }
-
-      const card = (skill) => {
-        const raw = skill.description || "";
-        const entry = entries[skill.path];
-        const itemBusy = Boolean(pendingIds[skill.path]);
-        const hasZh = Boolean(entry?.zh);
-        const fallback = hasZh && view === "zh" ? entry.zh : raw || "—";
-        return h(
-          "div",
-          {
-            key: skill.path ?? skill.name,
-            className: "smCard",
-            role: "button",
-            tabIndex: 0,
-            onClick: () => setActiveSkill(skill),
-            onKeyDown: (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                setActiveSkill(skill);
-              }
-            },
-          },
-          h(
-            "div",
-            { className: "smCardHead" },
-            h("span", { className: "smCardName" }, skill.name),
-            skill.modelInvocable ? null : h("span", { className: "smBadge" }, t("skillHidden"))
-          ),
-          h(
-            "div",
-            { className: hasZh && view === "zh" ? "smCardDesc smTranslated" : "smCardDesc" },
-            fallback
-          ),
-          h(
-            "div",
-            { className: "smCardFoot" },
-            h("span", { className: "smHint" }, skill.scope === "user" ? t("skillScopeUser") : skill.scope),
-            h(TransTag, { t, entry, busy: itemBusy }),
-            raw
-              ? h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "smCardBtn",
-                    title: t("retranslate"),
-                    "aria-label": `${t("retranslate")} ${skill.name}`,
-                    "data-busy": itemBusy,
-                    disabled: itemBusy,
-                    onClick: (event) => {
-                      event.stopPropagation();
-                      void translate([skill], { force: true });
-                    },
-                  },
-                  h(IconRefresh, { size: 13 })
-                )
-              : null,
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smCardDelete",
-                title: t("remove"),
-                "aria-label": `${t("remove")} ${skill.name}`,
-                onClick: (event) => {
-                  event.stopPropagation();
-                  setPendingDelete(skill);
-                },
-              },
-              h(IconTrash, { size: 14 })
-            )
-          )
-        );
-      };
-
-      return h(
-        React.Fragment,
-        null,
-        h(
-          "div",
-          { className: "smControls" },
-          h(
-            "div",
-            { className: "smToolbar" },
-            h(
-              "label",
-              { className: "smSearch" },
-              h(IconSearch, { size: 14 }),
-              h("input", {
-                value: query,
-                onChange: (e) => setQuery(e.target.value),
-                placeholder: t("searchSkill"),
-                "aria-label": t("searchSkill"),
-              })
-            ),
-            h(
-              "div",
-              { className: "smSeg", role: "group", "aria-label": t("viewMode") },
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "smSegBtn",
-                  "aria-pressed": view === "zh",
-                  onClick: () => setView("zh"),
-                },
-                t("showTranslated")
-              ),
-              h(
-                "button",
-                {
-                  type: "button",
-                  className: "smSegBtn",
-                  "aria-pressed": view === "en",
-                  onClick: () => setView("en"),
-                },
-                t("showOriginal")
-              )
-            ),
-            h("span", { className: "smHint" }, `${filtered.length} / ${skills.length}`),
-            h("span", { className: "smToolbarDivider", "aria-hidden": "true" }),
-            h("span", { className: "smModelPick", title: t("translateModelHint") }, t("translateModel")),
-            h(
-              "select",
-              {
-                className: "smSelect",
-                value: selectedKey,
-                disabled: translateBusy || !modelOptions.length,
-                title: t("translateModelHint"),
-                "aria-label": t("translateModel"),
-                onChange: (event) => changeModel(event.target.value),
-              },
-              selectedMissing || !modelOptions.length
-                ? h("option", { value: selectedKey }, target ? `${target.model} · ${target.provider}` : t("noModel"))
-                : null,
-              modelOptions.map((option) => h("option", { key: option.key, value: option.key }, option.label))
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smBtn",
-                disabled: translateBusy || !translatable.length,
-                onClick: retranslateAll,
-                "data-busy": translateBusy,
-              },
-              h(IconRefresh, { size: 14 }),
-              t("retranslateAll")
-            )
-          ),
-          noticeText
-            ? h(
-                "div",
-                { className: "smNotice", "data-tone": noticeTone, role: "status" },
-                h("i", { className: "smNoticeDot" }),
-                h("span", { className: "smNoticeText", title: notice || "" }, noticeText),
-                tally.retry.length
-                  ? h(
-                      "button",
-                      {
-                        type: "button",
-                        className: "smLinkBtn smNoticeAction",
-                        disabled: translateBusy,
-                        onClick: retryFailed,
-                      },
-                      t("translateRetry")
-                    )
-                  : null
-              )
-            : null
-        ),
-        filtered.length
-          ? h("div", { className: "smCards" }, filtered.map(card))
-          : h("div", { className: "smEmpty", style: { padding: "40px 24px" } }, h("p", { className: "smEmptyBody" }, t("searchNoResult"))),
-        activeSkill
-          ? h(SkillDrawer, {
-              skill: activeSkill,
-              t,
-              entry: entries[activeSkill.path],
-              busy: Boolean(pendingIds[activeSkill.path]),
-              target,
-              onRetranslate: () => translate([activeSkill], { force: true }),
-              onLocate: () => locateSkill(activeSkill),
-              onClose: () => setActiveSkill(null),
-            })
-          : null,
-        pendingDelete
-          ? h(
-              "div",
-              { className: "smMask", onMouseDown: (e) => e.target === e.currentTarget && setPendingDelete(null) },
-              h(
-                "div",
-                { className: "smModal", role: "dialog", "aria-modal": "true", style: { maxWidth: 460 } },
-                h("div", { className: "smModalHead" }, h("h2", { className: "smModalTitle" }, `${t("remove")} ${pendingDelete.name}`)),
-                h("div", { className: "smModalBody" }, h("p", { className: "smHint" }, t("removeSkillConfirm"))),
-                h(
-                  "div",
-                  { className: "smModalFoot" },
-                  h("button", { type: "button", className: "smBtn smBtnGhost", onClick: () => setPendingDelete(null) }, t("cancel")),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "smBtn smBtnPrimary",
-                      disabled: busy,
-                      style: { background: "var(--dsw-alias-state-error-primary)", color: "#fff" },
-                      onClick: removeSkill,
-                    },
-                    t("confirmRemove")
-                  )
-                )
-              )
-            )
-          : null
-      );
-    }
-    function Page({ t, tab, setTab, state, reload, notify }) {
-      const [menuOpen, setMenuOpen] = useState(false);
-      const [verHidden, setVerHidden] = useState(false);
-
-      /**
-       * 三个版本读数，各自独立：
-       *  disk    磁盘上现在这版（Host 收到请求时才读）
-       *  running Host 进程启动时加载的那版
-       *  page    这份 JS 的构建戳
-       * 前两者不同 = 必须重启；page 与 Host 不同 = 页面里是旧构建，刷新即可。
-       */
-      const version = state.version ?? null;
-      const diskVersion = version?.disk?.version ?? null;
-      const runningVersion = version?.running?.version ?? null;
-      const hostCommit = version?.build?.commit ?? "";
-      const hostMissing = version?.missing === true;
-      const hostStale = !hostMissing && version?.stale === true;
-      const pageStale = !hostStale && !hostMissing && Boolean(hostCommit && BUILD.commit && hostCommit !== BUILD.commit);
-      const versionUnknown = version?.unknown === true;
-      const showVersion =
-        !verHidden && Boolean(version) && (hostStale || hostMissing || pageStale || versionUnknown);
-
-      useEffect(() => {
-        if (!menuOpen) return;
-        const onDown = (event) => {
-          const node = event.target;
-          if (node && node.closest && node.closest(".smMenuWrap")) return;
-          setMenuOpen(false);
+        /* --------------------------------------------------- 最小 Markdown 渲染 */
+        const inline = (text, keyPrefix) => {
+            const nodes = [];
+            const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/g;
+            let last = 0;
+            let match;
+            let index = 0;
+            while ((match = pattern.exec(text)) !== null) {
+                if (match.index > last)
+                    nodes.push(text.slice(last, match.index));
+                const token = match[0];
+                const key = `${keyPrefix}-i${index++}`;
+                if (token.startsWith("`")) {
+                    nodes.push(React.createElement("code", { key: key }, token.slice(1, -1)));
+                }
+                else if (token.startsWith("**")) {
+                    nodes.push(React.createElement("strong", { key: key }, token.slice(2, -2)));
+                }
+                else {
+                    const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+                    nodes.push(React.createElement("a", { key: key, href: linkMatch[2], target: "_blank", rel: "noreferrer noopener" }, linkMatch[1]));
+                }
+                last = match.index + token.length;
+            }
+            if (last < text.length)
+                nodes.push(text.slice(last));
+            return nodes;
         };
-        document.addEventListener("mousedown", onDown);
-        return () => document.removeEventListener("mousedown", onDown);
-      }, [menuOpen]);
-
-      const openTarget = async (kind) => {
-        setMenuOpen(false);
-        try {
-          await request("/api/service-manager/open", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ kind }),
-          });
-        } catch (err) {
-          notify(err.message);
+        const renderMarkdown = (source) => {
+            const lines = String(source ?? "").replace(/\r\n/g, "\n").split("\n");
+            const blocks = [];
+            let paragraph = [];
+            let list = null;
+            let code = null;
+            let key = 0;
+            const flushParagraph = () => {
+                if (!paragraph.length)
+                    return;
+                const text = paragraph.join(" ").trim();
+                if (text)
+                    blocks.push(React.createElement("p", { key: `p${key++}` }, inline(text, `p${key}`)));
+                paragraph = [];
+            };
+            const flushList = () => {
+                if (!list)
+                    return;
+                const ordered = list.ordered;
+                const items = list.items;
+                const Tag = ordered ? "ol" : "ul";
+                blocks.push(React.createElement(Tag, { key: `l${key++}` }, items.map((item, index) => (React.createElement("li", { key: index }, inline(item, `l${key}-${index}`))))));
+                list = null;
+            };
+            for (const rawLine of lines) {
+                const line = rawLine.replace(/\s+$/, "");
+                const fence = /^```(\w*)\s*$/.exec(line);
+                if (code !== null) {
+                    if (fence) {
+                        blocks.push(React.createElement("pre", { key: `c${key++}` },
+                            React.createElement("code", null, code.join("\n"))));
+                        code = null;
+                    }
+                    else {
+                        code.push(rawLine);
+                    }
+                    continue;
+                }
+                if (fence) {
+                    flushParagraph();
+                    flushList();
+                    code = [];
+                    continue;
+                }
+                if (line.trim() === "") {
+                    flushParagraph();
+                    flushList();
+                    continue;
+                }
+                if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+                    flushParagraph();
+                    flushList();
+                    blocks.push(React.createElement("hr", { key: `h${key++}` }));
+                    continue;
+                }
+                const heading = /^(#{1,4})\s+(.*)$/.exec(line);
+                if (heading) {
+                    flushParagraph();
+                    flushList();
+                    const Tag = `h${heading[1].length}`;
+                    blocks.push(React.createElement(Tag, { key: `h${key++}` }, inline(heading[2], `h${key}`)));
+                    continue;
+                }
+                const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+                const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
+                if (ordered || bullet) {
+                    flushParagraph();
+                    const isOrdered = Boolean(ordered);
+                    if (!list || list.ordered !== isOrdered) {
+                        flushList();
+                        list = { ordered: isOrdered, items: [] };
+                    }
+                    list.items.push((ordered ?? bullet)[1]);
+                    continue;
+                }
+                paragraph.push(line.trim());
+            }
+            if (code !== null)
+                blocks.push(React.createElement("pre", { key: `c${key++}` },
+                    React.createElement("code", null, code.join("\n"))));
+            flushParagraph();
+            flushList();
+            return blocks;
+        };
+        /* ---------------------------------------------------------------- 抽屉 */
+        /** 译文来源：绿点=模型、琥珀点=机翻或失败、蓝点脉冲=翻译中。 */
+        function TransTag({ t, entry, busy }) {
+            if (busy) {
+                return (React.createElement("span", { className: "smTransTag", "data-engine": "pending" },
+                    React.createElement("i", null),
+                    t("transBusy")));
+            }
+            if (!entry)
+                return null;
+            if (entry.engine === "model") {
+                return (React.createElement(Tip, { label: entry.model ?? "" },
+                    React.createElement("span", { className: "smTransTag", "data-engine": "model" },
+                        React.createElement("i", null),
+                        t("transModel"))));
+            }
+            if (entry.engine === "machine") {
+                return (React.createElement("span", { className: "smTransTag", "data-engine": "machine" },
+                    React.createElement("i", null),
+                    t("transMachine")));
+            }
+            if (entry.engine === "none") {
+                return (React.createElement("span", { className: "smTransTag", "data-engine": "none" },
+                    React.createElement("i", null),
+                    t("transNone")));
+            }
+            return null;
         }
-      };
-
-      const versionBanner = !showVersion
-        ? null
-        : h(
-            "div",
-            { className: "smBanner smBannerWarn", role: "status" },
-            h(
-              "div",
-              { className: "smBannerText" },
-              hostMissing
-                ? h("span", { className: "smBannerTitle" }, t("verMissingTitle"))
-                : hostStale
-                  ? h("span", { className: "smBannerTitle" }, t("verStaleTitle"))
-                  : pageStale
-                    ? h("span", { className: "smBannerTitle" }, t("verPageTitle"))
-                    : null,
-              h(
-                "span",
-                { className: "smBannerBody" },
-                hostMissing
-                  ? t("verMissingBody")
-                  : hostStale
-                    ? t("verStaleBody")
-                    : pageStale
-                      ? t("verPageBody")
-                      : t("verUnknown")
-              ),
-              hostStale
-                ? h(
-                    "span",
-                    { className: "smBannerMeta" },
-                    diskVersion ? h("span", null, `${t("verDisk")} ${diskVersion}`) : null,
-                    runningVersion ? h("span", null, `${t("verRunning")} ${runningVersion}`) : null,
-                    version?.running?.startedAt
-                      ? h("span", null, `${t("verStarted")} ${shortClock(version.running.startedAt)}`)
-                      : null
-                  )
-                : null
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                className: "smBannerClose",
-                "aria-label": t("verDismiss"),
-                title: t("verDismiss"),
-                onClick: () => setVerHidden(true),
-              },
-              "×"
-            )
-          );
-
-      return h(
-        React.Fragment,
-        null,
-        styleTag("page", CSS),
-        h(
-          "div",
-          { className: "smPage" },
-          h(
-            "div",
-            { className: "smInner" },
-            h(
-              "div",
-              { className: "smTopbar" },
-              h(
-                "button",
-                { type: "button", className: "smBack", onClick: () => ctxLayoutSelect(null) },
-                h(IconBack, { size: 14 }),
-                t("back")
-              ),
-              h(
-                "div",
-                { className: "smTopRight" },
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "smIconBtn",
-                    "data-busy": state.loading,
-                    onClick: reload,
-                    title: t("refresh"),
-                    "aria-label": t("refresh"),
-                  },
-                  h(IconRefresh, { size: 15 })
-                ),
-                h(
-                  "div",
-                  { className: "smMenuWrap" },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "smIconBtn",
-                      onClick: () => setMenuOpen((v) => !v),
-                      title: t("more"),
-                      "aria-label": t("more"),
-                      "aria-haspopup": "menu",
-                      "aria-expanded": menuOpen,
-                    },
-                    h(IconMore, { size: 15 })
-                  ),
-                  menuOpen
-                    ? h(
-                        "div",
-                        { className: "smMenu", role: "menu" },
-                        h(
-                          "button",
-                          { type: "button", className: "smMenuItem", role: "menuitem", onClick: () => openTarget("file") },
-                          h(IconExternal, { size: 14 }),
-                          t("openFile")
-                        ),
-                        h(
-                          "button",
-                          { type: "button", className: "smMenuItem", role: "menuitem", onClick: () => openTarget("folder") },
-                          h(IconFolder, { size: 14 }),
-                          t("openFolder")
-                        )
-                      )
-                    : null
-                )
-              )
-            ),
-            h(
-              "div",
-              { className: "smHead" },
-              h("h1", { className: "smTitle" }, t("title")),
-              h("p", { className: "smSub" }, t("sub"))
-            ),
-            h(
-              "div",
-              { className: "smTabs", role: "tablist" },
-              ["mcp", "skill"].map((key) =>
-                h(
-                  "button",
-                  {
-                    key,
-                    type: "button",
-                    role: "tab",
-                    className: "smTab",
-                    "aria-selected": tab === key,
-                    onClick: () => setTab(key),
-                  },
-                  t(`tabs.${key}`)
-                )
-              )
-            ),
-            versionBanner,
-            state.error
-              ? h(
-                  "div",
-                  { className: "smBanner" },
-                  h("div", { className: "smBannerText" }, h("span", { className: "smBannerTitle" }, t("errorTitle")), h("span", { className: "smBannerBody" }, state.error)),
-                  h("button", { type: "button", className: "smBtn smBtnGhost", onClick: reload }, t("retry"))
-                )
-              : null,
-            tab === "mcp" ? h(McpView, { t, state, reload, notify }) : null,
-            tab === "skill" ? h(SkillView, { t, state, reload, notify }) : null
-          )
-        )
-      );
-    }
-
-    let ctxLayoutSelect = () => {};
-
-    /* ------------------------------------------------------------------ 插件 */
-
-    return {
-      inject: ["slots", "locale", "layout"],
-      apply(ctx) {
-        localeService = ctx.get("locale") ?? null;
-
-        try {
-          localeService?.register?.(NS, MESSAGES);
-          localeService?.bind?.(NS);
-        } catch {
-          /* locale 不可用不阻塞页面 */
+        /** 工具摘要与参数说明的翻译键，技能/工具共用同一份磁盘缓存。 */
+        const toolKeyOf = (server, tool) => `${server.id}:${tool.name}`;
+        const paramKeyOf = (server, tool, param) => `${server.id}:${tool.name}#${param.name}`;
+        /** 抽屉外壳：遮罩 + 右侧滑入 + Esc 关闭，技能和工具共用。 */
+        function DrawerShell({ t, title, subtitle, onClose, onLocate, children, }) {
+            const [open, setOpen] = useState(false);
+            /* 用 ref 存回调：父组件重渲染会换掉 onClose 的函数身份，
+               如果把它放进依赖里，effect 每次都被取消，进场动画就永远播不出来。 */
+            const onCloseRef = useRef(onClose);
+            onCloseRef.current = onClose;
+            useEffect(() => {
+                const frame = requestAnimationFrame(() => setOpen(true));
+                const onKey = (event) => {
+                    if (event.key === "Escape")
+                        onCloseRef.current();
+                };
+                window.addEventListener("keydown", onKey);
+                return () => {
+                    cancelAnimationFrame(frame);
+                    window.removeEventListener("keydown", onKey);
+                };
+            }, []);
+            const close = () => {
+                setOpen(false);
+                setTimeout(() => onCloseRef.current(), 200);
+            };
+            return (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "smDrawerScrim", "data-open": open, onClick: close }),
+                React.createElement("aside", { className: "smDrawer", "data-open": open, role: "dialog", "aria-modal": "true", "aria-label": title },
+                    React.createElement("div", { className: "smDrawerHead" },
+                        React.createElement("div", { className: "smDrawerTitleWrap" },
+                            React.createElement("h2", { className: "smDrawerTitle" }, title),
+                            subtitle ? (React.createElement("div", { className: "smDrawerMetaRow" },
+                                React.createElement(Tip, { label: subtitle },
+                                    React.createElement("div", { className: "smDrawerMeta smMono" }, subtitle)),
+                                onLocate ? (React.createElement(Tip, { label: t("showInFiles") },
+                                    React.createElement("button", { type: "button", className: "smIconBtn smIconBtnTiny", "aria-label": t("showInFiles"), onClick: onLocate },
+                                        React.createElement(IconFolder, { size: 13 })))) : null)) : null),
+                        React.createElement("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": t("close") },
+                            React.createElement(IconClose, { size: 15 }))),
+                    React.createElement("div", { className: "smDrawerBody" }, children))));
         }
-
-        ctxLayoutSelect = (id) => {
-          try {
-            ctx.get("layout")?.selectPanel?.(id);
-          } catch {
-            /* ignore */
-          }
-        };
-
-        /* 页面状态提升到 apply 作用域，切走再切回不丢 */
-        let store = {
-          loading: false,
-          error: "",
-          servers: null,
-          skills: null,
-          version: null,
-        };
-        const listeners = new Set();
-        const emit = () => listeners.forEach((fn) => fn());
-        const set = (patch) => {
-          store = { ...store, ...patch };
-          emit();
-        };
-
+        /** 抽屉里的摘要层：译文 + 来源 + 重翻，技能和工具共用。 */
+        function SummarySection({ t, entry, busy, target, onRetranslate, children, }) {
+            const modelLabel = entry?.model || (target ? `${target.provider}/${target.model}` : "");
+            return (React.createElement("section", { className: "smSummary" },
+                React.createElement("div", { className: "smSummaryLabel" }, t("summaryLabel")),
+                React.createElement("p", { className: "smSummaryText" }, children),
+                React.createElement("div", { className: "smSummaryMeta" },
+                    React.createElement(TransTag, { t: t, entry: entry, busy: busy }),
+                    modelLabel && !busy ? React.createElement("span", { className: "smMono", style: { fontSize: 11 } }, modelLabel) : null,
+                    React.createElement("button", { type: "button", className: "smLinkBtn", disabled: busy, onClick: onRetranslate }, busy ? `${t("transBusy")}…` : t("retranslate")))));
+        }
+        function SourceDivider({ label }) {
+            return (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "smSummaryDivider" }),
+                React.createElement("div", { className: "smSummaryLabel", style: { marginBottom: 10 } }, label)));
+        }
+        function SkillDrawer({ skill, t, entry, busy, target, onRetranslate, onClose, onLocate, }) {
+            const [body, setBody] = useState(null);
+            const [error, setError] = useState("");
+            const [loading, setLoading] = useState(true);
+            useEffect(() => {
+                let alive = true;
+                (async () => {
+                    try {
+                        const url = `/api/service-manager/skills/content?path=${encodeURIComponent(skill.path)}`;
+                        const response = await fetch(url, { credentials: "same-origin" });
+                        const payload = await response.json();
+                        if (!alive)
+                            return;
+                        if (payload.ok === false)
+                            throw new Error(payload.error || "读取失败");
+                        setBody(payload.body ?? "");
+                    }
+                    catch (err) {
+                        if (alive)
+                            setError(err.message);
+                    }
+                    finally {
+                        if (alive)
+                            setLoading(false);
+                    }
+                })();
+                return () => {
+                    alive = false;
+                };
+            }, [skill.path]);
+            return (React.createElement(DrawerShell, { t: t, title: skill.name, subtitle: skill.path, onClose: onClose, onLocate: onLocate },
+                React.createElement(SummarySection, { t: t, entry: entry, busy: busy, target: target, onRetranslate: onRetranslate }, entry?.text || skill.description || "—"),
+                React.createElement(SourceDivider, { label: t("sourceLabel") }),
+                loading ? (React.createElement("div", { className: "smSkeleton", style: { height: 120, borderRadius: 8 } })) : error ? (React.createElement("div", { className: "smBanner" },
+                    React.createElement("div", { className: "smBannerText" },
+                        React.createElement("span", { className: "smBannerBody" }, error)))) : (React.createElement("div", { className: "smMd" }, renderMarkdown(body ?? "")))));
+        }
+        function ToolDrawer({ tool, server, t, entry, busy, target, entries, onRetranslate, onClose, }) {
+            const params = tool.params ?? [];
+            return (React.createElement(DrawerShell, { t: t, title: tool.name, subtitle: `${server.serverName} · ${server.endpoint}`, onClose: onClose },
+                React.createElement(SummarySection, { t: t, entry: entry, busy: busy, target: target, onRetranslate: onRetranslate }, entry?.text || tool.description || "—"),
+                params.length ? (React.createElement(React.Fragment, null,
+                    React.createElement(SourceDivider, { label: t("paramsLabel") }),
+                    React.createElement("div", { className: "smParams" }, params.map((param) => {
+                        const text = entries?.[paramKeyOf(server, tool, param)]?.text || param.description || "";
+                        return (React.createElement("div", { key: param.name, className: "smParam" },
+                            React.createElement("div", { className: "smParamHead" },
+                                React.createElement("span", { className: "smParamName" }, param.name),
+                                React.createElement("span", { className: "smParamType" }, param.type),
+                                param.required ? React.createElement("span", { className: "smParamReq" }, t("required")) : null),
+                            text ? React.createElement("p", { className: "smParamDesc" }, text) : null));
+                    })))) : null));
+        }
+        /* ------------------------------------------------------------------ 组件 */
+        function StatusBadge({ server, t }) {
+            const tone = STATUS_TONE[server.status] ?? "";
+            const label = {
+                connected: t("statusConnected"),
+                configured: t("statusConfigured"),
+                idle: t("statusConfigured"),
+                disabled: t("statusDisabled"),
+                failed: t("statusFailed"),
+            }[server.status] ?? t("statusConfigured");
+            return (React.createElement("span", { className: "smStatus" },
+                React.createElement("i", { className: "smDot", "data-tone": tone }),
+                label));
+        }
+        function ToolRow({ tool, t, entry, busy, onOpen, }) {
+            const text = entry?.text || tool.description || "";
+            return (React.createElement("button", { type: "button", className: "smToolRow", onClick: () => onOpen(tool), "aria-label": `${tool.name} ${t("summaryLabel")}` },
+                React.createElement("span", { className: "smToolRowName" }, tool.name),
+                React.createElement(Tip, { label: tool.description || "" },
+                    React.createElement("span", { className: "smToolRowDesc", "data-empty": !text }, text || t("toolNoDesc"))),
+                React.createElement(TransTag, { t: t, entry: entry, busy: busy })));
+        }
+        function ServerRow({ server, t, onToggle, onRemove, onEdit, onOpen, busy, open, entries, pending, onOpenTool, }) {
+            const tools = server.tools ?? [];
+            const count = server.toolCount;
+            /* 详情区一旦展开过就留在树上：收起时高度归零并 inert。
+               这样退场有内容可收，再展开也不用重建整份工具行。 */
+            const [hasOpened, setHasOpened] = useState(open === true);
+            if (open && !hasOpened)
+                setHasOpened(true);
+            return (React.createElement("div", { className: "smRowWrap", "data-open": open },
+                React.createElement("div", { className: "smRow", "data-expandable": "true", role: "button", tabIndex: 0, "aria-expanded": open, onClick: () => onOpen(server.id), onKeyDown: (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onOpen(server.id);
+                        }
+                    } },
+                    React.createElement("span", { className: "smRowChevron", "data-open": open, "aria-hidden": "true" },
+                        React.createElement(IconChevron, { size: 12 })),
+                    React.createElement("div", { className: "smName" },
+                        React.createElement("div", { className: "smNameMain" },
+                            React.createElement("span", { className: "smNameText" }, server.serverName),
+                            server.managed ? null : React.createElement("span", { className: "smTag" }, t("externalNote"))),
+                        server.note ? React.createElement("div", { className: "smNameNote" }, server.note) : null),
+                    React.createElement("div", { className: "smEndpoint" },
+                        React.createElement("span", { className: "smTag" }, server.transport === "stdio" ? "stdio" : "http"),
+                        React.createElement(Tip, { label: server.endpoint },
+                            React.createElement("span", { className: "smEndpointText smMono" }, endpointOf(server)))),
+                    React.createElement(StatusBadge, { server: server, t: t }),
+                    React.createElement("div", { className: "smTools", "data-empty": count == null }, count == null ? "–" : String(count)),
+                    React.createElement("div", { className: "smActions", onClick: (event) => event.stopPropagation() },
+                        React.createElement(Tip, { label: `${t("edit")} ${server.serverName}` },
+                            React.createElement("button", { type: "button", className: "smIconBtn", "aria-label": `${t("edit")} ${server.serverName}`, onClick: () => onEdit(server) },
+                                React.createElement(IconEdit, { size: 14 }))),
+                        React.createElement(Tip, { label: `${t("remove")} ${server.serverName}` },
+                            React.createElement("button", { type: "button", className: "smIconBtn smIconBtnDanger", "aria-label": `${t("remove")} ${server.serverName}`, onClick: () => onRemove(server) },
+                                React.createElement(IconTrash, { size: 14 }))),
+                        React.createElement(Tip, { label: `${server.enabled ? t("disable") : t("enable")} ${server.serverName}` },
+                            React.createElement("button", { type: "button", className: "smSwitch", role: "switch", "aria-checked": server.enabled, "aria-label": `${server.enabled ? t("disable") : t("enable")} ${server.serverName}`, disabled: busy, onClick: () => onToggle(server) },
+                                React.createElement("span", null))))),
+                hasOpened ? (React.createElement("div", { className: "smDetail", "data-open": open, ...(open ? {} : { inert: "", "aria-hidden": "true" }) },
+                    React.createElement("div", { className: "smDetailInner" },
+                        React.createElement("div", { className: "smDetailBody" },
+                            server.transport === "stdio" && server.cwd ? (React.createElement("div", { className: "smDetailHead" },
+                                React.createElement("span", null, t("fieldCwd")),
+                                React.createElement("span", { className: "smMono" }, server.cwd))) : null,
+                            tools.length ? (React.createElement("div", { className: "smToolRows" }, tools.map((tool) => (React.createElement(ToolRow, { key: tool.name, tool: tool, t: t, entry: entries?.[toolKeyOf(server, tool)], busy: Boolean(pending?.[toolKeyOf(server, tool)]), onOpen: (target) => onOpenTool(server, target) }))))) : (React.createElement("div", { className: "smHint" }, server.enabled ? t("toolPending") : t("toolDisabled"))))))) : null));
+        }
+        function EmptyState({ t, onAdd, onOpen }) {
+            return (React.createElement("div", { className: "smEmpty" },
+                React.createElement("div", { className: "smEmptyIcon" },
+                    React.createElement(IconServer, { size: 22 })),
+                React.createElement("h3", { className: "smEmptyTitle" }, t("emptyTitle")),
+                React.createElement("p", { className: "smEmptyBody" }, t("emptyBody")),
+                React.createElement("div", { className: "smEmptyActions" },
+                    React.createElement("button", { type: "button", className: "smBtn smBtnPrimary", onClick: onAdd },
+                        React.createElement(IconPlus, { size: 14 }),
+                        t("emptyAdd")),
+                    React.createElement("button", { type: "button", className: "smBtn", onClick: onOpen },
+                        React.createElement(IconExternal, { size: 14 }),
+                        t("emptyOpen")))));
+        }
+        function ErrorState({ t, message, onRetry }) {
+            return (React.createElement("div", { className: "smEmpty" },
+                React.createElement("div", { className: "smEmptyIcon smEmptyIconDanger" },
+                    React.createElement(IconAlert, { size: 22 })),
+                React.createElement("h3", { className: "smEmptyTitle" }, t("errorTitle")),
+                React.createElement("p", { className: "smEmptyBody" }, message || t("errorTitle")),
+                React.createElement("div", { className: "smEmptyActions" },
+                    React.createElement("button", { type: "button", className: "smBtn", onClick: onRetry },
+                        React.createElement(IconRefresh, { size: 14 }),
+                        t("retry")))));
+        }
         /**
-         * 读一次版本自述。
-         *  404 = 正在跑的 Host 还没有这条路由，也就是它比页面旧。这是最需要说出来的一种情况：
-         *        用户刚更新完、还没重启，页面却一言不发，正是历史上最难判断的那一刻。
+         * 轻量 tooltip：外层是 display:contents 的壳，不参与任何布局；
+         * 气泡 portal 到 body，所以不会被行里的 overflow:hidden 裁掉。
+         * 定位取第一个子元素的盒子——display:contents 的壳自己没有盒子。
          */
-        const loadVersion = async () => {
-          try {
-            const payload = await request("/api/service-manager/version");
-            set({ version: payload });
-          } catch (error) {
-            set({ version: /\b404\b/.test(String(error?.message ?? "")) ? { ok: false, missing: true } : null });
-          }
-        };
-
-        const load = async (scope) => {
-          set({ loading: true, error: "" });
-          void loadVersion();
-          try {
-            if (scope === "mcp") {
-              const payload = await request("/api/service-manager/mcp");
-              set({ servers: payload.servers ?? [] });
-            }
-            if (scope === "skill") {
-              const payload = await request("/api/service-manager/skills");
-              set({ skills: payload.skills ?? [] });
-            }
-          } catch (error) {
-            set({ error: error.message });
-          } finally {
-            set({ loading: false });
-          }
-        };
-
-        function Shell() {
-          /* 订阅语言切换：设置里改语言后整页即时重渲染，不需要重启 */
-          useLocaleTick();
-          const [tab, setTab] = useState("mcp");
-          const [snapshot, setSnapshot] = useState(store);
-          useEffect(() => {
-            const fn = () => setSnapshot(store);
-            listeners.add(fn);
-            return () => listeners.delete(fn);
-          }, []);
-          useEffect(() => {
-            load(tab);
-          }, [tab]);
-          const reload = useCallback(() => {
-            load(tab);
-          }, [tab]);
-          const notify = useCallback((message) => set({ error: message }), []);
-          return h(Page, { t, tab, setTab, state: snapshot, reload, notify });
+        function Tip({ label, children }) {
+            const [open, setOpen] = useState(false);
+            const [box, setBox] = useState({ left: 0, top: 0, above: true });
+            const text = typeof label === "string" ? label.trim() : "";
+            const show = (node) => {
+                if (!text || typeof window === "undefined")
+                    return;
+                const target = node?.firstElementChild ?? node;
+                if (!target || typeof target.getBoundingClientRect !== "function")
+                    return;
+                const rect = target.getBoundingClientRect();
+                if (!rect.width && !rect.height)
+                    return;
+                const half = Math.min(160, Math.max(0, window.innerWidth / 2 - 12));
+                const left = Math.min(Math.max(rect.left + rect.width / 2, 12 + half), window.innerWidth - 12 - half);
+                const above = rect.top > 64;
+                setBox({ left: Math.round(left), top: Math.round(above ? rect.top - 8 : rect.bottom + 8), above });
+                setOpen(true);
+            };
+            const hide = () => setOpen(false);
+            /* 滚动或改窗口大小就收起来：气泡是 fixed 定位，跟着内容跑反而错位 */
+            useEffect(() => {
+                if (!open || typeof window === "undefined")
+                    return;
+                const onMove = () => setOpen(false);
+                window.addEventListener("scroll", onMove, true);
+                window.addEventListener("resize", onMove);
+                return () => {
+                    window.removeEventListener("scroll", onMove, true);
+                    window.removeEventListener("resize", onMove);
+                };
+            }, [open]);
+            return (React.createElement(React.Fragment, null,
+                React.createElement("span", { className: "smTip", onMouseEnter: (event) => show(event.currentTarget), onMouseLeave: hide, onFocus: (event) => show(event.currentTarget), onBlur: hide }, children),
+                open && text && createPortal
+                    ? createPortal(React.createElement("div", { className: "smTipBubble", role: "tooltip", "data-above": box.above, style: { left: box.left, top: box.top } }, text), document.body)
+                    : null));
         }
-
-        const Comp = () => h(Shell);
-
-        ctx.slots.inject("sidebar.panellist", () =>
-          ctx.slots.register(
-            {
-              name: "sidebar.panellist",
-              id: PANEL_ID,
-              order: 40,
-              label: () => t("nav"),
-              locale: NS,
+        const Bar = ({ w, h: height }) => (React.createElement("span", { className: "smSkBar", "data-shimmer": "true", style: { width: w ?? "100%", height: height ?? 10 } }));
+        /** 表格骨架：与真实行同一套五列，加载完成时不会整块跳一下。 */
+        function TableSkeleton({ t }) {
+            return (React.createElement("div", { className: "smTable", role: "status", "aria-label": t("loading") },
+                React.createElement("div", { className: "smTHead" },
+                    React.createElement("span", null, t("colName")),
+                    React.createElement("span", null, t("colEndpoint")),
+                    React.createElement("span", null, t("colStatus")),
+                    React.createElement("span", null, t("colTools")),
+                    React.createElement("span", null)),
+                [0, 1, 2].map((row) => (React.createElement("div", { key: row, className: "smSkRow" },
+                    React.createElement("div", { className: "smName" },
+                        React.createElement(Bar, { w: row === 1 ? "54%" : "70%" }),
+                        React.createElement(Bar, { w: "38%", h: 8 })),
+                    React.createElement("div", { className: "smEndpoint" },
+                        React.createElement(Bar, { w: "26%", h: 14 }),
+                        React.createElement(Bar, { w: row === 2 ? "42%" : "62%" })),
+                    React.createElement(Bar, { w: "64%" }),
+                    React.createElement(Bar, { w: "18px" }),
+                    React.createElement("div", { className: "smActions" },
+                        React.createElement(Bar, { w: "58px" })))))));
+        }
+        /** 卡片骨架：名称一行 + 摘要三行，与真实卡片同高。 */
+        function CardSkeleton({ t }) {
+            return (React.createElement("div", { className: "smCards", role: "status", "aria-label": t("loading") }, [0, 1, 2, 3].map((index) => (React.createElement("div", { key: index, className: "smSkCard" },
+                React.createElement("div", { className: "smCardHead" },
+                    React.createElement(Bar, { w: "46%" }),
+                    React.createElement(Bar, { w: "34px", h: 14 })),
+                React.createElement(Bar, { w: "100%", h: 9 }),
+                React.createElement(Bar, { w: "92%", h: 9 }),
+                React.createElement(Bar, { w: index % 2 ? "58%" : "76%", h: 9 }))))));
+        }
+        /** 破坏性操作的确认框：删服务器、删技能共用一份，避免两处各写一遍走样。 */
+        function ConfirmDialog({ t, title, body, busy, width, onCancel, onConfirm, }) {
+            return (React.createElement("div", { className: "smMask", onMouseDown: (event) => event.target === event.currentTarget && onCancel() },
+                React.createElement("div", { className: "smModal", role: "dialog", "aria-modal": "true", style: { maxWidth: width ?? 440 } },
+                    React.createElement("div", { className: "smModalHead" },
+                        React.createElement("h2", { className: "smModalTitle" }, title)),
+                    React.createElement("div", { className: "smModalBody" },
+                        React.createElement("p", { className: "smHint" }, body)),
+                    React.createElement("div", { className: "smModalFoot" },
+                        React.createElement("button", { type: "button", className: "smBtn smBtnGhost", onClick: onCancel }, t("cancel")),
+                        React.createElement("button", { type: "button", className: "smBtn smBtnDangerSolid", disabled: busy, onClick: onConfirm }, t("confirmRemove"))))));
+        }
+        function ServerForm({ t, initial, onClose, onSaved, }) {
+            const [transport, setTransport] = useState(initial?.transport ?? "stdio");
+            const [serverName, setServerName] = useState(initial?.serverName ?? "");
+            const [command, setCommand] = useState(initial?.endpoint?.split(" ")[0] ?? "");
+            const [args, setArgs] = useState("");
+            const [cwd, setCwd] = useState(initial?.cwd ?? "");
+            const [url, setUrl] = useState(initial?.transport === "streamable-http" ? initial.endpoint : "");
+            const [pairs, setPairs] = useState(() => Object.entries((initial?.transport === "streamable-http" ? initial?.headers : initial?.env) ?? {}).map(([k, v]) => ({
+                k,
+                v: String(v),
+            })));
+            const [note, setNote] = useState(initial?.note ?? "");
+            const [presetId, setPresetId] = useState("");
+            const [saving, setSaving] = useState(false);
+            const [error, setError] = useState("");
+            const applyPreset = (id) => {
+                setPresetId(id);
+                const preset = PRESETS.find((item) => item.id === id);
+                if (!preset)
+                    return;
+                const values = preset.values;
+                setServerName(values.serverName ?? "");
+                setTransport(values.transport ?? "stdio");
+                setCommand(values.command ?? "");
+                setArgs(values.args ?? "");
+                setCwd(values.cwd ?? "");
+                setUrl(values.url ?? "");
+                setNote(values.note ?? "");
+                setPairs((values.env ?? values.headers ?? []).map((item) => ({ ...item })));
+            };
+            const submit = async () => {
+                setSaving(true);
+                setError("");
+                try {
+                    const kv = {};
+                    for (const pair of pairs) {
+                        const key = pair.k.trim();
+                        if (!key)
+                            continue;
+                        kv[key] = pair.v;
+                    }
+                    const body = {
+                        serverName,
+                        transport,
+                        note,
+                        ...(transport === "stdio"
+                            ? { command, args: args.split("\n").map((s) => s.trim()).filter(Boolean), cwd, env: kv }
+                            : { url, headers: kv }),
+                    };
+                    const payload = await request("/api/service-manager/mcp/save", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify(body),
+                    });
+                    onSaved(payload);
+                }
+                catch (err) {
+                    setError(err.message);
+                }
+                finally {
+                    setSaving(false);
+                }
+            };
+            return (React.createElement("div", { className: "smMask", onMouseDown: (event) => event.target === event.currentTarget && onClose() },
+                React.createElement("div", { className: "smModal", role: "dialog", "aria-modal": "true" },
+                    React.createElement("div", { className: "smModalHead" },
+                        React.createElement("h2", { className: "smModalTitle" }, initial ? t("formTitleEdit") : t("formTitleNew")),
+                        React.createElement("button", { type: "button", className: "smIconBtn", onClick: onClose, "aria-label": t("cancel") },
+                            React.createElement("span", { style: { fontSize: 16, lineHeight: 1 } }, "\u00D7"))),
+                    React.createElement("div", { className: "smModalBody" },
+                        initial ? null : (React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, t("presetLabel")),
+                            React.createElement("select", { className: "smInput", value: presetId, onChange: (event) => applyPreset(event.target.value) },
+                                React.createElement("option", { value: "" }, t("presetNone")),
+                                PRESETS.map((preset) => (React.createElement("option", { key: preset.id, value: preset.id }, t(preset.labelKey))))))),
+                        React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, t("fieldName")),
+                            React.createElement("input", { className: "smInput", value: serverName, onChange: (event) => setServerName(event.target.value), placeholder: "github", disabled: Boolean(initial) }),
+                            React.createElement("div", { className: "smHint" }, t("fieldNameHint"))),
+                        React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, t("fieldTransport")),
+                            React.createElement("div", { className: "smSeg" }, ["stdio", "streamable-http"].map((value) => (React.createElement("button", { key: value, type: "button", className: "smSegBtn", "aria-pressed": transport === value, onClick: () => setTransport(value) }, value === "stdio" ? "stdio" : "HTTP"))))),
+                        transport === "stdio" ? (React.createElement(React.Fragment, null,
+                            React.createElement("div", { className: "smField" },
+                                React.createElement("label", { className: "smLabel" }, t("fieldCommand")),
+                                React.createElement("input", { className: "smInput smMono", value: command, onChange: (event) => setCommand(event.target.value), placeholder: "npx" })),
+                            React.createElement("div", { className: "smField" },
+                                React.createElement("label", { className: "smLabel" }, t("fieldArgs")),
+                                React.createElement("textarea", { className: "smTextarea", value: args, onChange: (event) => setArgs(event.target.value), placeholder: "-y\n@modelcontextprotocol/server-github" }),
+                                React.createElement("div", { className: "smHint" }, t("fieldArgsHint"))),
+                            React.createElement("div", { className: "smField" },
+                                React.createElement("label", { className: "smLabel" }, t("fieldCwd")),
+                                React.createElement("input", { className: "smInput smMono", value: cwd, onChange: (event) => setCwd(event.target.value), placeholder: "D:\\\\work" }),
+                                React.createElement("div", { className: "smWarning" }, t("fieldCwdHint"))))) : (React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, t("fieldUrl")),
+                            React.createElement("input", { className: "smInput smMono", value: url, onChange: (event) => setUrl(event.target.value), placeholder: "https://example.com/mcp" }))),
+                        React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, transport === "stdio" ? t("fieldEnv") : t("fieldHeaders")),
+                            React.createElement("div", { className: "smKV" },
+                                pairs.map((pair, index) => (React.createElement("div", { key: index, className: "smKVRow" },
+                                    React.createElement("input", { className: "smInput smMono", value: pair.k, placeholder: transport === "stdio" ? "GITHUB_TOKEN" : "Authorization", "aria-label": t("keyLabel"), onChange: (event) => setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, k: event.target.value } : item))) }),
+                                    React.createElement("input", { className: "smInput smMono", value: pair.v, placeholder: transport === "stdio" ? "ghp_…" : "Bearer …", "aria-label": t("valueLabel"), onChange: (event) => setPairs((prev) => prev.map((item, i) => (i === index ? { ...item, v: event.target.value } : item))) }),
+                                    React.createElement("button", { type: "button", className: "smKVRemove", "aria-label": t("removePair"), onClick: () => setPairs((prev) => prev.filter((_, i) => i !== index)) },
+                                        React.createElement(IconClose, { size: 12 }))))),
+                                React.createElement("button", { type: "button", className: "smKVAdd", onClick: () => setPairs((prev) => [...prev, { k: "", v: "" }]) },
+                                    React.createElement(IconPlus, { size: 12 }),
+                                    t("addPair"))),
+                            React.createElement("div", { className: "smHint" }, transport === "stdio" ? t("fieldEnvHint") : t("fieldHeadersHint"))),
+                        React.createElement("div", { className: "smField" },
+                            React.createElement("label", { className: "smLabel" }, t("fieldNote")),
+                            React.createElement("input", { className: "smInput", value: note, onChange: (event) => setNote(event.target.value) }),
+                            React.createElement("div", { className: "smHint" }, t("fieldNoteHint"))),
+                        React.createElement("div", { className: "smHint", style: { marginTop: -2 } }, t("envRefHint")),
+                        error ? (React.createElement("div", { className: "smBanner" },
+                            React.createElement("div", { className: "smBannerText" },
+                                React.createElement("span", { className: "smBannerBody" }, error)))) : null),
+                    React.createElement("div", { className: "smModalFoot" },
+                        React.createElement("button", { type: "button", className: "smBtn smBtnGhost", onClick: onClose }, t("cancel")),
+                        React.createElement("button", { type: "button", className: "smBtn smBtnPrimary", onClick: submit, disabled: saving }, saving ? t("saving") : t("save"))))));
+        }
+        function McpView({ t, state, reload, notify, }) {
+            const [query, setQuery] = useState("");
+            const [editing, setEditing] = useState(null);
+            const [busyId, setBusyId] = useState(null);
+            const [pendingRemove, setPendingRemove] = useState(null);
+            const [openId, setOpenId] = useState(null);
+            const [activeTool, setActiveTool] = useState(null);
+            const [catalog, setCatalog] = useState(null);
+            const [target, setTarget] = useState(null);
+            const [entries, setEntries] = useState({});
+            const [pending, setPending] = useState({});
+            const [notice, setNotice] = useState("");
+            const [refreshing, setRefreshing] = useState(false);
+            const servers = state.servers ?? [];
+            const filtered = useMemo(() => {
+                const q = query.trim().toLowerCase();
+                if (!q)
+                    return servers;
+                return servers.filter((s) => s.serverName.toLowerCase().includes(q) || (s.endpoint ?? "").toLowerCase().includes(q));
+            }, [servers, query]);
+            const targetRef = useRef(null);
+            useEffect(() => {
+                targetRef.current = target;
+            }, [target]);
+            useEffect(() => {
+                let alive = true;
+                (async () => {
+                    try {
+                        const payload = await request("/api/service-manager/models");
+                        if (!alive)
+                            return;
+                        setCatalog(payload);
+                        if (payload.selected)
+                            setTarget(payload.selected);
+                    }
+                    catch {
+                        if (alive)
+                            setCatalog({ providers: [], failures: [] });
+                    }
+                })();
+                return () => {
+                    alive = false;
+                };
+            }, []);
+            const modelOptions = useMemo(() => {
+                const out = [];
+                for (const provider of catalog?.providers ?? []) {
+                    for (const model of provider.models ?? []) {
+                        out.push({ key: `${provider.id}::${model.id}`, label: `${model.name} · ${provider.name}` });
+                    }
+                }
+                return out;
+            }, [catalog]);
+            const selectedKey = target ? `${target.provider}::${target.model}` : "";
+            const selectedMissing = Boolean(selectedKey) && !modelOptions.some((option) => option.key === selectedKey);
+            const markPending = (ids, value) => setPending((prev) => {
+                const next = { ...prev };
+                for (const id of ids) {
+                    if (value)
+                        next[id] = true;
+                    else
+                        delete next[id];
+                }
+                return next;
+            });
+            /* 工具摘要翻译：和技能共用同一套磁盘缓存与模型选择；分批回来分批渲染 */
+            const translate = async (items, options = {}) => {
+                if (!items.length)
+                    return;
+                const model = options.model ?? targetRef.current ?? null;
+                for (let start = 0; start < items.length; start += 5) {
+                    const slice = items.slice(start, start + 5);
+                    const ids = slice.map((item) => item.id);
+                    markPending(ids, true);
+                    try {
+                        const payload = await request("/api/service-manager/skills/translate", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                                items: slice,
+                                target: currentLanguage(),
+                                force: options.force === true,
+                                ...(model ? { model } : {}),
+                            }),
+                        });
+                        setEntries((prev) => ({ ...prev, ...(payload.results ?? {}) }));
+                        setNotice(payload.modelError ? String(payload.modelError) : "");
+                    }
+                    catch (err) {
+                        setNotice(String(err.message ?? err));
+                    }
+                    finally {
+                        markPending(ids, false);
+                    }
+                }
+            };
+            const openServer = servers.find((server) => server.id === openId) ?? null;
+            const openTools = openServer?.tools ?? [];
+            /* 展开一台服务器时，要翻的是「工具描述 + 每个参数的说明」 */
+            const collectUnits = (server) => {
+                const units = [];
+                for (const tool of server?.tools ?? []) {
+                    if (tool.description)
+                        units.push({ id: toolKeyOf(server, tool), text: tool.description });
+                    for (const param of tool.params ?? []) {
+                        if (param.description)
+                            units.push({ id: paramKeyOf(server, tool, param), text: param.description });
+                    }
+                }
+                return units;
+            };
+            /* 语言也算进 key：切了界面语言之后，展开中这台服务器的工具要按新语言重来一遍 */
+            const openKey = openServer
+                ? `${currentLanguage()}|${openServer.id}|${collectUnits(openServer).map((unit) => unit.id).join(",")}`
+                : "";
+            const lastOpenKey = useRef("");
+            /* 展开才翻译：没展开的服务器不发模型请求 */
+            useEffect(() => {
+                if (!openServer || !openKey)
+                    return;
+                if (lastOpenKey.current === openKey)
+                    return;
+                lastOpenKey.current = openKey;
+                const items = collectUnits(openServer);
+                if (!items.length)
+                    return;
+                let alive = true;
+                (async () => {
+                    let cached = {};
+                    try {
+                        const payload = await request("/api/service-manager/skills/translate", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ items, target: currentLanguage(), cachedOnly: true }),
+                        });
+                        cached = payload.results ?? {};
+                        if (alive)
+                            setEntries((prev) => ({ ...prev, ...cached }));
+                    }
+                    catch {
+                        /* 读缓存失败就当作全都没翻过 */
+                    }
+                    if (!alive)
+                        return;
+                    const missing = items.filter((item) => !cached[item.id]?.text);
+                    if (missing.length)
+                        await translate(missing, { force: false });
+                })();
+                return () => {
+                    alive = false;
+                };
+            }, [openKey]);
+            const retranslateOpenTools = async (model) => {
+                if (!openServer)
+                    return;
+                const items = collectUnits(openServer);
+                if (!items.length)
+                    return;
+                await translate(items, { force: true, model });
+            };
+            const changeModel = async (value) => {
+                const [provider, model] = String(value).split("::");
+                if (!provider || !model)
+                    return;
+                const next = { provider, model };
+                setTarget(next);
+                try {
+                    await request("/api/service-manager/models", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify(next),
+                    });
+                }
+                catch {
+                    /* 保存失败只影响下次默认值 */
+                }
+                await retranslateOpenTools(next);
+            };
+            /* 写盘后 MCP 是后台重连的，轮询到重连结束再拉一次列表 */
+            const waitForRefresh = async (since) => {
+                setRefreshing(true);
+                try {
+                    for (let attempt = 0; attempt < 20; attempt += 1) {
+                        await new Promise((resolve) => setTimeout(resolve, 400));
+                        let payload;
+                        try {
+                            payload = await request("/api/service-manager/mcp");
+                        }
+                        catch {
+                            break;
+                        }
+                        const info = payload?.refresh ?? {};
+                        if (!info.running && (info.at ?? 0) >= since - 5000)
+                            break;
+                    }
+                }
+                finally {
+                    setRefreshing(false);
+                }
+                await reload();
+            };
+            const toggle = async (server) => {
+                const since = Date.now();
+                setBusyId(server.id);
+                try {
+                    await request("/api/service-manager/mcp/toggle", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ id: server.id, enabled: !server.enabled }),
+                    });
+                    await reload();
+                    void waitForRefresh(since);
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+                finally {
+                    setBusyId(null);
+                }
+            };
+            const remove = async () => {
+                const server = pendingRemove;
+                const since = Date.now();
+                setPendingRemove(null);
+                setBusyId(server.id);
+                try {
+                    await request("/api/service-manager/mcp/delete", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ id: server.id }),
+                    });
+                    if (openId === server.id)
+                        setOpenId(null);
+                    await reload();
+                    void waitForRefresh(since);
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+                finally {
+                    setBusyId(null);
+                }
+            };
+            const openConfig = async () => {
+                try {
+                    await request("/api/service-manager/open", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ kind: "file" }),
+                    });
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+            };
+            /* 读失败且没有任何数据：整页报错 + 重试，不要一边报错一边说「还没有服务器」 */
+            if (!servers.length && state.error) {
+                return React.createElement(ErrorState, { t: t, message: state.error, onRetry: reload });
+            }
+            if (state.loading && !servers.length) {
+                return React.createElement(TableSkeleton, { t: t });
+            }
+            if (!servers.length) {
+                return React.createElement(EmptyState, { t: t, onAdd: () => setEditing({ mode: "new" }), onOpen: openConfig });
+            }
+            return (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "smControls" },
+                    React.createElement("div", { className: "smToolbar" },
+                        React.createElement("label", { className: "smSearch" },
+                            React.createElement(IconSearch, { size: 14 }),
+                            React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: t("search"), "aria-label": t("search") })),
+                        React.createElement("span", { className: "smHint" }, `${filtered.length} / ${servers.length}`),
+                        openTools.length ? (React.createElement(React.Fragment, null,
+                            React.createElement("span", { className: "smToolbarDivider", "aria-hidden": "true" }),
+                            React.createElement(Tip, { label: t("translateModelHint") },
+                                React.createElement("span", { className: "smModelPick" }, t("translateModel"))),
+                            React.createElement("select", { className: "smSelect", value: selectedKey, disabled: !modelOptions.length, "aria-label": t("translateModel"), onChange: (event) => changeModel(event.target.value) },
+                                selectedMissing || !modelOptions.length ? (React.createElement("option", { value: selectedKey }, target ? `${target.model} · ${target.provider}` : t("noModel"))) : null,
+                                modelOptions.map((option) => (React.createElement("option", { key: option.key, value: option.key }, option.label)))))) : null,
+                        React.createElement("button", { type: "button", className: "smBtn smBtnPrimary", onClick: () => setEditing({ mode: "new" }) },
+                            React.createElement(IconPlus, { size: 14 }),
+                            t("add"))),
+                    refreshing ? (React.createElement("div", { className: "smNotice", "data-tone": "business", role: "status" },
+                        React.createElement("i", { className: "smNoticeDot" }),
+                        React.createElement("span", { className: "smNoticeText" }, t("reconnecting")))) : notice ? (React.createElement("div", { className: "smNotice", role: "status" },
+                        React.createElement("i", { className: "smNoticeDot" }),
+                        React.createElement(Tip, { label: notice },
+                            React.createElement("span", { className: "smNoticeText" }, t("toolTransFailed"))))) : null),
+                React.createElement("div", { className: "smTable" },
+                    React.createElement("div", { className: "smTHead" },
+                        React.createElement("span", null, t("colName")),
+                        React.createElement("span", null, t("colEndpoint")),
+                        React.createElement("span", null, t("colStatus")),
+                        React.createElement("span", null, t("colTools")),
+                        React.createElement("span", null)),
+                    filtered.map((server) => (React.createElement(ServerRow, { key: server.id, server: server, t: t, busy: busyId === server.id, open: openId === server.id, entries: entries, pending: pending, onOpen: (id) => setOpenId((prev) => (prev === id ? null : id)), onToggle: toggle, onRemove: setPendingRemove, onEdit: (target2) => setEditing({ mode: "edit", server: target2 }), onOpenTool: (serverRef, tool) => setActiveTool({ server: serverRef, tool }) })))),
+                filtered.length ? null : (React.createElement("div", { className: "smEmpty", style: { padding: "40px 24px" } },
+                    React.createElement("p", { className: "smEmptyBody" }, t("searchNoResult")))),
+                editing ? (React.createElement(ServerForm, { t: t, initial: editing.server ?? null, onClose: () => setEditing(null), onSaved: () => {
+                        const since = Date.now();
+                        setEditing(null);
+                        void reload();
+                        void waitForRefresh(since);
+                    } })) : null,
+                activeTool ? (React.createElement(ToolDrawer, { tool: activeTool.tool, server: activeTool.server, t: t, entries: entries, entry: entries[toolKeyOf(activeTool.server, activeTool.tool)], busy: Boolean(pending[toolKeyOf(activeTool.server, activeTool.tool)]), target: target, onRetranslate: () => translate([{ id: toolKeyOf(activeTool.server, activeTool.tool), text: activeTool.tool.description }], { force: true }), onClose: () => setActiveTool(null) })) : null,
+                pendingRemove ? (React.createElement(ConfirmDialog, { t: t, title: `${t("remove")} ${pendingRemove.serverName}`, body: t("removeConfirm"), onCancel: () => setPendingRemove(null), onConfirm: remove })) : null));
+        }
+        function SkillView({ t, state, reload, notify, }) {
+            const [query, setQuery] = useState("");
+            const [pendingDelete, setPendingDelete] = useState(null);
+            const [activeSkill, setActiveSkill] = useState(null);
+            const [busy, setBusy] = useState(false);
+            const [catalog, setCatalog] = useState(null);
+            const [catalogReady, setCatalogReady] = useState(false);
+            const [target, setTarget] = useState(null);
+            const [entries, setEntries] = useState({});
+            const [pendingIds, setPendingIds] = useState({});
+            const [notice, setNotice] = useState("");
+            const [translateBusy, setTranslateBusy] = useState(false);
+            const [view, setView] = useState("translated");
+            const skills = state.skills ?? [];
+            /* 目标语言跟着界面语言走；切语言会重渲染，这里读到的就是新值 */
+            const lang = currentLanguage();
+            /* 只把技能名发给 Host，由 Host 用它自己扫描到的路径去打开——
+               客户端不传绝对路径，避免变成任意文件读取/打开的通道 */
+            const locateSkill = async (skill) => {
+                try {
+                    await request("/api/service-manager/open", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ kind: "skill", name: skill.name }),
+                    });
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+            };
+            /* 「要不要翻」由 Host 判断（语言识别只有那一份实现）：原文已经是目标语言的，
+               Host 会直接回 engine=source，不花 token。客户端不再按「含汉字」预筛，
+               否则英文界面下中文摘要永远不会被翻成英文。 */
+            const translatable = useMemo(() => skills.filter((skill) => skill.description), [skills]);
+            /* 语言进 key：切语言后要按新语言重新走一遍「读缓存 → 补翻」 */
+            const skillsKey = useMemo(() => [lang, ...skills.map((skill) => `${skill.path}\u0000${skill.description ?? ""}`)].join("\u0001"), [skills, lang]);
+            const targetRef = useRef(null);
+            useEffect(() => {
+                targetRef.current = target;
+            }, [target]);
+            /* 模型目录：等价于官方 GUI 的模型列表，只取 id / 名字 */
+            useEffect(() => {
+                let alive = true;
+                (async () => {
+                    try {
+                        const payload = await request("/api/service-manager/models");
+                        if (!alive)
+                            return;
+                        setCatalog(payload);
+                        if (payload.selected)
+                            setTarget(payload.selected);
+                    }
+                    catch (err) {
+                        if (alive)
+                            setCatalog({ providers: [], failures: [{ id: "-", message: err.message }] });
+                    }
+                    finally {
+                        if (alive)
+                            setCatalogReady(true);
+                    }
+                })();
+                return () => {
+                    alive = false;
+                };
+            }, []);
+            const markPending = (ids, value) => setPendingIds((prev) => {
+                const next = { ...prev };
+                for (const id of ids) {
+                    if (value)
+                        next[id] = true;
+                    else
+                        delete next[id];
+                }
+                return next;
+            });
+            /* 翻译一批技能。译文由 Host 落盘到 translations.json，刷新后仍在。 */
+            /* 分批请求，每批回来就渲染——首屏不用等全部翻完。
+               本地模型代理是串行的，一次发 13 条只会让所有卡片一起干等。 */
+            const TRANSLATE_CHUNK = 5;
+            const translate = async (list, options = {}) => {
+                const items = list
+                    .filter((skill) => skill.description)
+                    .map((skill) => ({ id: skill.path, text: skill.description }));
+                if (!items.length)
+                    return;
+                const model = options.model ?? targetRef.current ?? null;
+                for (let start = 0; start < items.length; start += TRANSLATE_CHUNK) {
+                    const slice = items.slice(start, start + TRANSLATE_CHUNK);
+                    const ids = slice.map((item) => item.id);
+                    markPending(ids, true);
+                    try {
+                        const payload = await request("/api/service-manager/skills/translate", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({
+                                items: slice,
+                                target: lang,
+                                force: options.force === true,
+                                ...(model ? { model } : {}),
+                            }),
+                        });
+                        setEntries((prev) => ({ ...prev, ...(payload.results ?? {}) }));
+                        setNotice(payload.modelError ? String(payload.modelError) : "");
+                    }
+                    catch (err) {
+                        setNotice(String(err.message ?? err));
+                    }
+                    finally {
+                        markPending(ids, false);
+                    }
+                }
+            };
+            const initialKey = useRef("");
+            useEffect(() => {
+                if (!catalogReady || !translatable.length)
+                    return;
+                if (initialKey.current === skillsKey)
+                    return;
+                initialKey.current = skillsKey;
+                let alive = true;
+                (async () => {
+                    const items = translatable.map((skill) => ({ id: skill.path, text: skill.description }));
+                    let cached = {};
+                    try {
+                        const payload = await request("/api/service-manager/skills/translate", {
+                            method: "POST",
+                            headers: { "content-type": "application/json" },
+                            body: JSON.stringify({ items, target: lang, cachedOnly: true }),
+                        });
+                        cached = payload.results ?? {};
+                        if (alive)
+                            setEntries((prev) => ({ ...prev, ...cached }));
+                    }
+                    catch {
+                        /* 读缓存失败就当作全都没翻过 */
+                    }
+                    if (!alive)
+                        return;
+                    const missing = translatable.filter((skill) => !cached[skill.path]?.text);
+                    if (missing.length)
+                        await translate(missing, { force: false });
+                })();
+                return () => {
+                    alive = false;
+                };
+            }, [catalogReady, skillsKey, translatable]);
+            const modelOptions = useMemo(() => {
+                const out = [];
+                for (const provider of catalog?.providers ?? []) {
+                    for (const model of provider.models ?? []) {
+                        out.push({ key: `${provider.id}::${model.id}`, label: `${model.name} · ${provider.name}` });
+                    }
+                }
+                return out;
+            }, [catalog]);
+            const selectedKey = target ? `${target.provider}::${target.model}` : "";
+            const selectedMissing = Boolean(selectedKey) && !modelOptions.some((option) => option.key === selectedKey);
+            const changeModel = async (value) => {
+                const [provider, model] = String(value).split("::");
+                if (!provider || !model)
+                    return;
+                const next = { provider, model };
+                setTarget(next);
+                try {
+                    await request("/api/service-manager/models", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify(next),
+                    });
+                }
+                catch {
+                    /* 保存失败只影响下次默认值，不影响本次翻译 */
+                }
+                setTranslateBusy(true);
+                await translate(translatable, { force: true, model: next });
+                setTranslateBusy(false);
+            };
+            const retranslateAll = async () => {
+                setTranslateBusy(true);
+                await translate(translatable, { force: true });
+                setTranslateBusy(false);
+            };
+            /* 摘要统计：决定顶部提示条说什么，以及「重试」重翻哪些 */
+            const tally = useMemo(() => {
+                const out = {
+                    model: 0,
+                    machine: 0,
+                    none: 0,
+                    waiting: 0,
+                    retry: [],
+                };
+                for (const skill of translatable) {
+                    if (pendingIds[skill.path]) {
+                        out.waiting += 1;
+                        continue;
+                    }
+                    const engine = entries[skill.path]?.engine;
+                    if (engine === "model")
+                        out.model += 1;
+                    else if (engine === "machine") {
+                        out.machine += 1;
+                        out.retry.push(skill);
+                    }
+                    else if (engine === "none") {
+                        out.none += 1;
+                        out.retry.push(skill);
+                    }
+                }
+                return out;
+            }, [translatable, entries, pendingIds]);
+            const noticeText = tally.waiting
+                ? t("noticeWaiting").replace("{n}", String(tally.waiting))
+                : tally.none
+                    ? t("noticeNone").replace("{n}", String(tally.none))
+                    : tally.machine
+                        ? t("noticeMachine").replace("{n}", String(tally.machine))
+                        : notice;
+            const noticeTone = tally.waiting ? "business" : "warn";
+            const retryFailed = async () => {
+                if (!tally.retry.length)
+                    return;
+                setTranslateBusy(true);
+                await translate(tally.retry, { force: true });
+                setTranslateBusy(false);
+            };
+            const filtered = useMemo(() => {
+                const q = query.trim().toLowerCase();
+                if (!q)
+                    return skills;
+                return skills.filter((skill) => skill.name.toLowerCase().includes(q));
+            }, [skills, query]);
+            const removeSkill = async () => {
+                const skill = pendingDelete;
+                setPendingDelete(null);
+                setBusy(true);
+                try {
+                    await request("/api/service-manager/skills/delete", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ path: skill.path }),
+                    });
+                    await reload();
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+                finally {
+                    setBusy(false);
+                }
+            };
+            /* 同 MCP 页：没有数据时的错误直接占满列表区，不和空态混着说 */
+            if (!skills.length && state.error) {
+                return React.createElement(ErrorState, { t: t, message: state.error, onRetry: reload });
+            }
+            if (state.loading && !state.skills) {
+                return React.createElement(CardSkeleton, { t: t });
+            }
+            if (!skills.length) {
+                return (React.createElement("div", { className: "smEmpty" },
+                    React.createElement("div", { className: "smEmptyIcon" },
+                        React.createElement(IconServer, { size: 22 })),
+                    React.createElement("h3", { className: "smEmptyTitle" }, t("skillEmpty")),
+                    React.createElement("p", { className: "smEmptyBody" }, t("skillEmptyBody"))));
+            }
+            const card = (skill) => {
+                const raw = skill.description || "";
+                const entry = entries[skill.path];
+                const itemBusy = Boolean(pendingIds[skill.path]);
+                /* engine=source 表示「原文本来就是目标语言」，不该被当成译文显示成灰色 */
+                const translated = Boolean(entry?.text) && entry.engine !== "source";
+                const showingTranslation = translated && view === "translated";
+                const fallback = showingTranslation ? entry?.text : raw || "—";
+                return (React.createElement("div", { key: skill.path ?? skill.name, className: "smCard", role: "button", tabIndex: 0, onClick: () => setActiveSkill(skill), onKeyDown: (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setActiveSkill(skill);
+                        }
+                    } },
+                    React.createElement("div", { className: "smCardHead" },
+                        React.createElement("span", { className: "smCardName" }, skill.name),
+                        skill.modelInvocable ? null : React.createElement("span", { className: "smBadge" }, t("skillHidden"))),
+                    React.createElement("div", { className: showingTranslation ? "smCardDesc smTranslated" : "smCardDesc" }, fallback),
+                    React.createElement("div", { className: "smCardFoot" },
+                        React.createElement("span", { className: "smHint" }, skill.scope === "user" ? t("skillScopeUser") : skill.scope),
+                        React.createElement(TransTag, { t: t, entry: entry, busy: itemBusy }),
+                        raw ? (React.createElement(Tip, { label: `${t("retranslate")} ${skill.name}` },
+                            React.createElement("button", { type: "button", className: "smCardBtn", "aria-label": `${t("retranslate")} ${skill.name}`, "data-busy": itemBusy, disabled: itemBusy, onClick: (event) => {
+                                    event.stopPropagation();
+                                    void translate([skill], { force: true });
+                                } },
+                                React.createElement(IconRefresh, { size: 13 })))) : null,
+                        React.createElement(Tip, { label: `${t("remove")} ${skill.name}` },
+                            React.createElement("button", { type: "button", className: "smCardDelete", "aria-label": `${t("remove")} ${skill.name}`, onClick: (event) => {
+                                    event.stopPropagation();
+                                    setPendingDelete(skill);
+                                } },
+                                React.createElement(IconTrash, { size: 14 }))))));
+            };
+            return (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "smControls" },
+                    React.createElement("div", { className: "smToolbar" },
+                        React.createElement("label", { className: "smSearch" },
+                            React.createElement(IconSearch, { size: 14 }),
+                            React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: t("searchSkill"), "aria-label": t("searchSkill") })),
+                        React.createElement("div", { className: "smSeg", role: "group", "aria-label": t("viewMode") },
+                            React.createElement("button", { type: "button", className: "smSegBtn", "aria-pressed": view === "translated", onClick: () => setView("translated") }, t("showTranslated")),
+                            React.createElement("button", { type: "button", className: "smSegBtn", "aria-pressed": view === "original", onClick: () => setView("original") }, t("showOriginal"))),
+                        React.createElement("span", { className: "smHint" }, `${filtered.length} / ${skills.length}`),
+                        React.createElement("span", { className: "smToolbarDivider", "aria-hidden": "true" }),
+                        React.createElement(Tip, { label: t("translateModelHint") },
+                            React.createElement("span", { className: "smModelPick" }, t("translateModel"))),
+                        React.createElement("select", { className: "smSelect", value: selectedKey, disabled: translateBusy || !modelOptions.length, "aria-label": t("translateModel"), onChange: (event) => changeModel(event.target.value) },
+                            selectedMissing || !modelOptions.length ? (React.createElement("option", { value: selectedKey }, target ? `${target.model} · ${target.provider}` : t("noModel"))) : null,
+                            modelOptions.map((option) => (React.createElement("option", { key: option.key, value: option.key }, option.label)))),
+                        React.createElement("button", { type: "button", className: "smBtn", disabled: translateBusy || !translatable.length, onClick: retranslateAll, "data-busy": translateBusy },
+                            React.createElement(IconRefresh, { size: 14 }),
+                            t("retranslateAll"))),
+                    noticeText ? (React.createElement("div", { className: "smNotice", "data-tone": noticeTone, role: "status" },
+                        React.createElement("i", { className: "smNoticeDot" }),
+                        React.createElement(Tip, { label: notice || "" },
+                            React.createElement("span", { className: "smNoticeText" }, noticeText)),
+                        tally.retry.length ? (React.createElement("button", { type: "button", className: "smLinkBtn smNoticeAction", disabled: translateBusy, onClick: retryFailed }, t("translateRetry"))) : null)) : null),
+                filtered.length ? (React.createElement("div", { className: "smCards" }, filtered.map(card))) : (React.createElement("div", { className: "smEmpty", style: { padding: "40px 24px" } },
+                    React.createElement("p", { className: "smEmptyBody" }, t("searchNoResult")))),
+                activeSkill ? (React.createElement(SkillDrawer, { skill: activeSkill, t: t, entry: entries[activeSkill.path], busy: Boolean(pendingIds[activeSkill.path]), target: target, onRetranslate: () => translate([activeSkill], { force: true }), onLocate: () => locateSkill(activeSkill), onClose: () => setActiveSkill(null) })) : null,
+                pendingDelete ? (React.createElement(ConfirmDialog, { t: t, title: `${t("remove")} ${pendingDelete.name}`, body: t("removeSkillConfirm"), busy: busy, width: 460, onCancel: () => setPendingDelete(null), onConfirm: removeSkill })) : null));
+        }
+        function Page({ t, tab, setTab, state, reload, notify, }) {
+            const [menuOpen, setMenuOpen] = useState(false);
+            const [verHidden, setVerHidden] = useState(false);
+            /**
+             * 三个版本读数，各自独立：
+             *  disk    磁盘上现在这版（Host 收到请求时才读）
+             *  running Host 进程启动时加载的那版
+             *  page    这份 JS 的构建戳
+             * 前两者不同 = 必须重启；page 与 Host 不同 = 页面里是旧构建，刷新即可。
+             */
+            const version = state.version ?? null;
+            const diskVersion = version?.disk?.version ?? null;
+            const runningVersion = version?.running?.version ?? null;
+            const hostCommit = version?.build?.commit ?? "";
+            const hostMissing = version?.missing === true;
+            const hostStale = !hostMissing && version?.stale === true;
+            const pageStale = !hostStale && !hostMissing && Boolean(hostCommit && BUILD.commit && hostCommit !== BUILD.commit);
+            const versionUnknown = version?.unknown === true;
+            const showVersion = !verHidden && Boolean(version) && (hostStale || hostMissing || pageStale || versionUnknown);
+            useEffect(() => {
+                if (!menuOpen)
+                    return;
+                const onDown = (event) => {
+                    const node = event.target;
+                    if (node && node.closest && node.closest(".smMenuWrap"))
+                        return;
+                    setMenuOpen(false);
+                };
+                document.addEventListener("mousedown", onDown);
+                return () => document.removeEventListener("mousedown", onDown);
+            }, [menuOpen]);
+            const openTarget = async (kind) => {
+                setMenuOpen(false);
+                try {
+                    await request("/api/service-manager/open", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ kind }),
+                    });
+                }
+                catch (err) {
+                    notify(err.message);
+                }
+            };
+            const versionBanner = !showVersion ? null : (React.createElement("div", { className: "smBanner smBannerWarn", role: "status" },
+                React.createElement("div", { className: "smBannerText" },
+                    hostMissing ? (React.createElement("span", { className: "smBannerTitle" }, t("verMissingTitle"))) : hostStale ? (React.createElement("span", { className: "smBannerTitle" }, t("verStaleTitle"))) : pageStale ? (React.createElement("span", { className: "smBannerTitle" }, t("verPageTitle"))) : null,
+                    React.createElement("span", { className: "smBannerBody" }, hostMissing ? t("verMissingBody") : hostStale ? t("verStaleBody") : pageStale ? t("verPageBody") : t("verUnknown")),
+                    hostStale ? (React.createElement("span", { className: "smBannerMeta" },
+                        diskVersion ? React.createElement("span", null, `${t("verDisk")} ${diskVersion}`) : null,
+                        runningVersion ? React.createElement("span", null, `${t("verRunning")} ${runningVersion}`) : null,
+                        version?.running?.startedAt ? React.createElement("span", null, `${t("verStarted")} ${shortClock(version.running.startedAt)}`) : null)) : null),
+                React.createElement(Tip, { label: t("verDismiss") },
+                    React.createElement("button", { type: "button", className: "smBannerClose", "aria-label": t("verDismiss"), onClick: () => setVerHidden(true) }, "\u00D7"))));
+            /* 列表为空时错误由视图整块呈现（ErrorState）；这里只在已有数据时挂一条横幅，
+               否则同一件事会被说两遍：上面「读取失败」，下面「还没有服务器」。 */
+            const hasContent = tab === "mcp" ? Boolean(state.servers?.length) : Boolean(state.skills?.length);
+            return (React.createElement(React.Fragment, null,
+                styleTag("page", CSS),
+                React.createElement("div", { className: "smPage" },
+                    React.createElement("div", { className: "smInner" },
+                        React.createElement("div", { className: "smTopbar" },
+                            React.createElement("button", { type: "button", className: "smBack", onClick: () => ctxLayoutSelect(null) },
+                                React.createElement(IconBack, { size: 14 }),
+                                t("back")),
+                            React.createElement("div", { className: "smTopRight" },
+                                React.createElement(Tip, { label: t("refresh") },
+                                    React.createElement("button", { type: "button", className: "smIconBtn", "data-busy": state.loading, onClick: reload, "aria-label": t("refresh") },
+                                        React.createElement(IconRefresh, { size: 15 }))),
+                                React.createElement("div", { className: "smMenuWrap" },
+                                    React.createElement(Tip, { label: t("more") },
+                                        React.createElement("button", { type: "button", className: "smIconBtn", onClick: () => setMenuOpen((v) => !v), "aria-label": t("more"), "aria-haspopup": "menu", "aria-expanded": menuOpen },
+                                            React.createElement(IconMore, { size: 15 }))),
+                                    menuOpen ? (React.createElement("div", { className: "smMenu", role: "menu" },
+                                        React.createElement("button", { type: "button", className: "smMenuItem", role: "menuitem", onClick: () => openTarget("file") },
+                                            React.createElement(IconExternal, { size: 14 }),
+                                            t("openFile")),
+                                        React.createElement("button", { type: "button", className: "smMenuItem", role: "menuitem", onClick: () => openTarget("folder") },
+                                            React.createElement(IconFolder, { size: 14 }),
+                                            t("openFolder")))) : null))),
+                        React.createElement("div", { className: "smHead" },
+                            React.createElement("h1", { className: "smTitle" }, t("title")),
+                            React.createElement("p", { className: "smSub" }, t("sub"))),
+                        React.createElement("div", { className: "smTabs", role: "tablist" }, ["mcp", "skill"].map((key) => (React.createElement("button", { key: key, type: "button", role: "tab", className: "smTab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(`tabs.${key}`))))),
+                        versionBanner,
+                        state.error && hasContent ? (React.createElement("div", { className: "smBanner" },
+                            React.createElement("div", { className: "smBannerText" },
+                                React.createElement("span", { className: "smBannerTitle" }, t("errorTitle")),
+                                React.createElement("span", { className: "smBannerBody" }, state.error)),
+                            React.createElement("button", { type: "button", className: "smBtn smBtnGhost", onClick: reload }, t("retry")))) : null,
+                        tab === "mcp" ? React.createElement(McpView, { t: t, state: state, reload: reload, notify: notify }) : null,
+                        tab === "skill" ? React.createElement(SkillView, { t: t, state: state, reload: reload, notify: notify }) : null))));
+        }
+        let ctxLayoutSelect = () => { };
+        /* ------------------------------------------------------------------ 插件 */
+        return {
+            inject: ["slots", "locale", "layout"],
+            apply(ctx) {
+                localeService = ctx.get("locale") ?? null;
+                try {
+                    localeService?.register?.(NS, MESSAGES);
+                    localeService?.bind?.(NS);
+                }
+                catch {
+                    /* locale 不可用不阻塞页面 */
+                }
+                ctxLayoutSelect = (id) => {
+                    try {
+                        ctx.get("layout")?.selectPanel?.(id);
+                    }
+                    catch {
+                        /* ignore */
+                    }
+                };
+                /* 页面状态提升到 apply 作用域，切走再切回不丢 */
+                let store = {
+                    loading: false,
+                    error: "",
+                    servers: null,
+                    skills: null,
+                    version: null,
+                };
+                const listeners = new Set();
+                const emit = () => listeners.forEach((fn) => fn());
+                const set = (patch) => {
+                    store = { ...store, ...patch };
+                    emit();
+                };
+                /**
+                 * 读一次版本自述。
+                 *  404 = 正在跑的 Host 还没有这条路由，也就是它比页面旧。这是最需要说出来的一种情况：
+                 *        用户刚更新完、还没重启，页面却一言不发，正是历史上最难判断的那一刻。
+                 */
+                const loadVersion = async () => {
+                    try {
+                        const payload = await request("/api/service-manager/version");
+                        set({ version: payload });
+                    }
+                    catch (error) {
+                        set({ version: /\b404\b/.test(String(error?.message ?? "")) ? { ok: false, missing: true } : null });
+                    }
+                };
+                const load = async (scope) => {
+                    set({ loading: true, error: "" });
+                    void loadVersion();
+                    try {
+                        if (scope === "mcp") {
+                            const payload = await request("/api/service-manager/mcp");
+                            set({ servers: payload.servers ?? [] });
+                        }
+                        if (scope === "skill") {
+                            const payload = await request("/api/service-manager/skills");
+                            set({ skills: payload.skills ?? [] });
+                        }
+                    }
+                    catch (error) {
+                        set({ error: error.message });
+                    }
+                    finally {
+                        set({ loading: false });
+                    }
+                };
+                function Shell() {
+                    /* 订阅语言切换：设置里改语言后整页即时重渲染，不需要重启 */
+                    useLocaleTick();
+                    const [tab, setTab] = useState("mcp");
+                    const [snapshot, setSnapshot] = useState(store);
+                    useEffect(() => {
+                        const fn = () => setSnapshot(store);
+                        listeners.add(fn);
+                        return () => {
+                            listeners.delete(fn);
+                        };
+                    }, []);
+                    useEffect(() => {
+                        load(tab);
+                    }, [tab]);
+                    const reload = useCallback(() => {
+                        load(tab);
+                    }, [tab]);
+                    const notify = useCallback((message) => set({ error: message }), []);
+                    return React.createElement(Page, { t: t, tab: tab, setTab: setTab, state: snapshot, reload: reload, notify: notify });
+                }
+                const Comp = () => React.createElement(Shell, null);
+                ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
+                    name: "sidebar.panellist",
+                    id: PANEL_ID,
+                    order: 40,
+                    label: () => t("nav"),
+                    locale: NS,
+                }, SidebarGlyph));
+                ctx.slots.inject("main", () => ctx.slots.register({ name: "main", key: PANEL_ID }, Comp));
             },
-            SidebarGlyph
-          )
-        );
-
-        ctx.slots.inject("main", () =>
-          ctx.slots.register({ name: "main", key: PANEL_ID }, Comp)
-        );
-      },
-    };
-  },
+        };
+    },
 });

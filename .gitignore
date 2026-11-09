@@ -4,3 +4,4 @@ docs/preview/frames/
 *.tmp
 .DS_Store
 Thumbs.db
+build/

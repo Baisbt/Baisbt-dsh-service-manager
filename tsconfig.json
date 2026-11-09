@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "none",
+    "jsx": "react",
+    "strict": false,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["react"],
+    "rootDir": ".",
+    "outDir": "build",
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": false,
+    "noEmitOnError": true,
+    "newLine": "lf"
+  },
+  "include": ["client.tsx"]
+}
+
+

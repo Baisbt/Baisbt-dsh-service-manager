@@ -5,11 +5,14 @@
  *  1. apply() 不抛错、路由注册齐全且无重复、各路由能正常应答；
  *  2. 进程启动后磁盘被换成新版 → /version 必须报 stale（这正是历史故障的形状）；
  *  3. package.json 读不到 → /version 报 unknown，而不是瞎猜；
- *  4. /open 只接受扫描到的技能名，不接任意路径。
+ *  4. /open 只接受扫描到的技能名，不接任意路径；
+ *  5. 翻译跟随界面语言：原文已经是目标语言就跳过（不花 token），
+ *     缓存按目标语言分槽，v2 时代的译文升级后不丢。
  *
  * 用 node test/host-smoke.mjs 运行。
  */
-import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,14 +31,14 @@ const temp = async (prefix) => {
 };
 
 /** 起一个半区：dir 是被 import 的插件目录，profile 是它以为的 profile 目录 */
-async function boot(dir, profile) {
+async function boot(dir, profile, options = {}) {
   const routes = new Map();
   const listeners = new Map();
   const duplicates = [];
   const ctx = {
     baseUrl: pathToFileURL(profile + path.sep).href,
     logger: { info() {}, warn() {}, error() {}, debug() {} },
-    get: () => null,
+    get: (name) => (options.get ? options.get(name) : null),
     on: (event, handler) => {
       listeners.set(event, handler);
       return () => {};
@@ -201,12 +204,121 @@ async function boot(dir, profile) {
   check("打开配置文件仍然可用", file.ok === true && file.kind === "file", file.error);
 }
 
+/* ------------- 7. 翻译：目标语言跟随界面语言、同语言跳过、缓存按语言分槽 ------------- */
+
+{
+  const profile = await temp("sm-profile-");
+  const stateDir = path.join(profile, ".dsh-service-manager");
+  const key = (text) => createHash("sha1").update(String(text)).digest("hex").slice(0, 24);
+
+  /* 先放一份 v2 时代的缓存：验证升级到 v3 之后中文译文不丢（升级不该让用户重翻一遍） */
+  const legacyText = "Design banners for social media and ads.";
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(
+    path.join(stateDir, "translations.json"),
+    JSON.stringify({
+      version: 2,
+      entries: {
+        [key(legacyText)]: { zh: "旧版留下的译文", engine: "machine", model: null, at: "2025-01-01T00:00:00.000Z" },
+      },
+    }),
+    "utf8"
+  );
+
+  /* 假模型：只认「目标语言写在提示词里」这一件事，按提示词回中文或英文译文 */
+  const llm = {
+    listProviders: () => [],
+    listModels: async () => [],
+    resolveModelInfo: async () => ({}),
+    stream: (options) => {
+      const prompt = options?.messages?.[0]?.content?.[0]?.text ?? "";
+      const text = prompt.includes("简体中文") ? "简体中文译文" : "English translation";
+      return (async function* () {
+        yield { type: "text-delta", text: `<<<1>>>\n${text}` };
+        yield { type: "finish", reason: { kind: "stop" } };
+      })();
+    },
+  };
+
+  const { call } = await boot(ROOT, profile, { get: (name) => (name === "llm" ? llm : null) });
+  const translate = (body) =>
+    call("/api/service-manager/skills/translate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: { provider: "fake", model: "fake-1" }, ...body }),
+    });
+
+  /* 页面没带 target（老页面 / 直接调接口）：默认中文 */
+  const fallbackLanguage = await translate({ items: [{ id: "h", text: "中文写的技能描述。" }], target: undefined });
+  check("不带 target 时退回中文", fallbackLanguage.language === "zh", String(fallbackLanguage.language));
+
+  const skipped = await translate({ items: [{ id: "a", text: "中文写的技能描述。" }], target: "zh" });
+  check("中文界面 + 中文原文：直接回原文", skipped.results.a?.engine === "source", skipped.results.a?.engine);
+  check("中文界面 + 中文原文：内容就是原文", skipped.results.a?.text === "中文写的技能描述。", skipped.results.a?.text);
+
+  const english = await translate({ items: [{ id: "b", text: "Design banners for social media and ads." }], target: "en" });
+  check("英文界面 + 英文原文：也跳过", english.results.b?.engine === "source", english.results.b?.engine);
+
+  const toChinese = await translate({
+    items: [{ id: "c", text: "Design banners for social media, ads and hero images." }],
+    target: "zh",
+  });
+  check("中文界面 + 英文原文：翻成中文", toChinese.results.c?.text === "简体中文译文", toChinese.results.c?.text);
+  check("译文来源记成 model", toChinese.results.c?.engine === "model", toChinese.results.c?.engine);
+
+  const toEnglish = await translate({ items: [{ id: "d", text: "把本机目录暴露给模型。" }], target: "en" });
+  check("英文界面 + 中文原文：翻成英文", toEnglish.results.d?.text === "English translation", toEnglish.results.d?.text);
+
+  /* 同一段认不出语言的原文、两种目标语言：缓存必须分槽，不能互相污染 */
+  const undetermined = "Tavily";
+  const zhFirst = await translate({ items: [{ id: "e", text: undetermined }], target: "zh" });
+  const enFirst = await translate({ items: [{ id: "e", text: undetermined }], target: "en" });
+  check("同一原文的中文槽", zhFirst.results.e?.text === "简体中文译文", zhFirst.results.e?.text);
+  check("同一原文的英文槽", enFirst.results.e?.text === "English translation", enFirst.results.e?.text);
+
+  const zhCached = await translate({ items: [{ id: "e", text: undetermined }], target: "zh", cachedOnly: true });
+  check("第二次中文命中缓存（不再请求模型）", zhCached.results.e?.cached === true && zhCached.results.e?.text === "简体中文译文", zhCached.results.e?.text);
+
+  const legacy = await translate({ items: [{ id: "f", text: legacyText }], target: "zh", cachedOnly: true });
+  check("v2 缓存升级后中文译文还在", legacy.results.f?.text === "旧版留下的译文", legacy.results.f?.text);
+
+  const store = JSON.parse(await readFile(path.join(stateDir, "translations.json"), "utf8"));
+  check("缓存文件已升到 v3", store.version === 3, String(store.version));
+  check("v3 按目标语言分槽", Boolean(store.entries[key(undetermined)]?.zh?.text && store.entries[key(undetermined)]?.en?.text));
+
+  /* 没有可用模型、也关掉机翻：必须显式标成 none，界面才能说「未译出」 */
+  const failed = await translate({
+    items: [{ id: "g", text: "这条中文描述从来没有被翻译过。" }],
+    target: "en",
+    model: null,
+    machine: false,
+  });
+  check("模型不可用时机翻可关闭", failed.ok === true);
+  check("两轮都没译出时标成 none", failed.results.g?.engine === "none", failed.results.g?.engine);
+  check("none 条目的译文为空", failed.results.g?.text === null, String(failed.results.g?.text));
+
+  /* 认不出语言就送翻译：法语不能被当成英文（那样英文界面会整屏留着法语原文） */
+  const french = await translate({
+    items: [{ id: "j", text: "Créez des règles Codex persistantes pour l'IA." }],
+    target: "en",
+    model: null,
+    machine: false,
+  });
+  check("法语不会被误判成英文", french.results.j?.engine === "none", french.results.j?.engine);
+
+  /* 页面带了 target 就记下来：探针与「没带 target 的老页面」都靠它 */
+  const remembered = await translate({ items: [{ id: "i", text: "中文写的技能描述。" }], target: undefined });
+  check("不带 target 时沿用上次保存的语言", remembered.language === "en", String(remembered.language));
+  const settings = JSON.parse(await readFile(path.join(stateDir, "settings.json"), "utf8"));
+  check("界面语言写进了 settings.json", settings.translateLanguage === "en", String(settings.translateLanguage));
+}
+
 for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
 
 let failures = 0;
 for (const [label, ok, detail] of checks) {
   if (!ok) failures += 1;
-  if (!ok || /apply|stale|unknown|路由|stats/.test(label)) {
+  if (!ok || /apply|stale|unknown|路由|stats|翻译|缓存|语言/.test(label)) {
     console.log(`${ok ? "✔" : "✘"} ${label}${!ok && detail ? ` — ${detail}` : ""}`);
   }
 }

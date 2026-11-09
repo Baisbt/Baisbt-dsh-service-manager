@@ -34,7 +34,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.10.0", commit: "f1313e7", built: "2026-11-09T06:52:35.577Z" };
+const BUILD = { version: "0.12.0", commit: "f182ff8", built: "2026-11-09T09:00:28.943Z" };
 
 function readSelfVersion() {
   try {
@@ -399,8 +399,10 @@ function openWithShell(target, reveal) {
 /* ------------------------------------------------------------------ 翻译 */
 
 const TRANSLATE_ENDPOINT = "https://api.mymemory.translated.net/get";
-const TRANSLATE_MAX_BYTES = 460;
-const TRANSLATE_STORE_VERSION = 2;
+const TRANSLATE_MAX_CHARS = 460;
+/* v3：缓存改成「原文哈希 → 各目标语言一层」。v2 的键隐含「目标必是中文」，
+   语言能跟随界面之后必须分开存，否则切语言会命中另一门语言的旧译文。 */
+const TRANSLATE_STORE_VERSION = 3;
 const MODEL_TIMEOUT_MS = 45_000;
 const MODEL_TOTAL_BUDGET_MS = 75_000;
 const MODEL_BATCH_SIZE = 12;
@@ -408,27 +410,100 @@ const MODEL_CONCURRENCY = 1;
 const MACHINE_TIMEOUT_MS = 6_000;
 const MACHINE_CONCURRENCY = 4;
 
-function looksChinese(text) {
-  return /[\u4e00-\u9fff]/.test(text);
+/* 目标语言跟随 DSH 的界面语言；只认 zh / en，认不出的值退回默认中文。 */
+const DEFAULT_TARGET = "zh";
+const TARGET_LABEL = { zh: "简体中文", en: "英文" };
+const MACHINE_LANG = { zh: "zh-CN", en: "en", ja: "ja", ko: "ko", ru: "ru", ar: "ar" };
+
+function normalizeTarget(value) {
+  const lang = String(value ?? "").trim().toLowerCase();
+  if (lang.startsWith("zh")) return "zh";
+  if (lang.startsWith("en")) return "en";
+  return null;
 }
 
-/** 稳定缓存键：整段原文的哈希，避免旧版按前 120 字符截断导致的误命中。 */
+/* -------------------------------------------------------------- 语言识别 */
+
+/**
+ * 只服务一件事：判断「这段原文是否已经是目标语言」，命中就跳过翻译、不花 token。
+ * 认不出来返回 "und" —— 这种情况一定送去翻译：宁可多花一次，也不要猜错，
+ * 把一段用户看不懂的原文当成译文摆在页面上。
+ */
+const KANA = /[\u3040-\u309f\u30a0-\u30ff]/;
+const HAN = /[\u3400-\u4dbf\u4e00-\u9fff]/;
+const HANGUL = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/;
+const CYRILLIC = /[\u0400-\u04ff]/;
+const ARABIC = /[\u0600-\u06ff]/;
+const LATIN_WORD = /[A-Za-z][A-Za-z'’-]*/g;
+/* 英文功能词。命中越多越像英文；只有长度没有功能词的（法语、德语…）不算，宁可送去翻译。 */
+const ENGLISH_HINT = /\b(the|and|of|to|with|for|from|that|this|your|you|use|when|is|are|be|by|in|on|at|as|or|not|it|its|can|will|into|via)\b/gi;
+
+function detectLang(text) {
+  const value = String(text ?? "");
+  if (!value.trim()) return "und";
+  /* 假名必须先判：日文里也有汉字，反过来不成立 */
+  if (KANA.test(value)) return "ja";
+  if (HAN.test(value)) return "zh";
+  if (HANGUL.test(value)) return "ko";
+  if (CYRILLIC.test(value)) return "ru";
+  if (ARABIC.test(value)) return "ar";
+  const words = value.match(LATIN_WORD) ?? [];
+  const hints = value.match(ENGLISH_HINT) ?? [];
+  if (words.length >= 3 && hints.length >= 1) return "en";
+  if (words.length >= 6 && hints.length >= 2) return "en";
+  return "und";
+}
+
+/** 稳定缓存键：整段原文的哈希；语言那一层由 store 结构承担，键里不带语言。 */
 function textKey(text) {
   return createHash("sha1").update(String(text)).digest("hex").slice(0, 24);
 }
 
-/** 磁盘格式升级：v1 是「原文前缀 → 译文」的平铺表，没有来源信息，直接作废。 */
-function normalizeStore(raw) {
-  if (
-    raw &&
-    typeof raw === "object" &&
-    raw.version === TRANSLATE_STORE_VERSION &&
-    raw.entries &&
-    typeof raw.entries === "object"
-  ) {
-    return { version: TRANSLATE_STORE_VERSION, entries: raw.entries };
+/** 把一条缓存记录统一成「语言 → 译文」两层；v2 的顶层就是一条中文译文。 */
+function normalizeEntry(raw, version) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (version < TRANSLATE_STORE_VERSION || typeof raw.zh === "string") {
+    const text = typeof raw.zh === "string" ? raw.zh : "";
+    if (!text) return null;
+    return {
+      zh: {
+        text,
+        engine: typeof raw.engine === "string" ? raw.engine : "machine",
+        model: typeof raw.model === "string" ? raw.model : null,
+        at: typeof raw.at === "string" ? raw.at : null,
+      },
+    };
   }
-  return { version: TRANSLATE_STORE_VERSION, entries: {} };
+  const byLang = {};
+  for (const [lang, value] of Object.entries(raw)) {
+    if (!TARGET_LABEL[lang]) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const text = typeof value.text === "string" ? value.text : "";
+    if (!text) continue;
+    byLang[lang] = {
+      text,
+      engine: typeof value.engine === "string" ? value.engine : "machine",
+      model: typeof value.model === "string" ? value.model : null,
+      at: typeof value.at === "string" ? value.at : null,
+    };
+  }
+  return Object.keys(byLang).length ? byLang : null;
+}
+
+/**
+ * 磁盘格式：v1 是「原文前缀 → 译文」的平铺表（没有来源信息，直接作废）；
+ * v2 是「原文哈希 → 一条中文译文」；v3 是「原文哈希 → { zh: 条目, en: 条目 }」。
+ * v2 升级到 v3 不丢数据：旧条目全部落在 zh 这一层，中文用户升级后不需要重翻。
+ */
+function normalizeStore(raw) {
+  const source = raw && typeof raw === "object" && raw.entries && typeof raw.entries === "object" ? raw.entries : null;
+  const version = raw && typeof raw === "object" && typeof raw.version === "number" ? raw.version : 0;
+  const entries = {};
+  for (const [key, value] of Object.entries(source ?? {})) {
+    const entry = normalizeEntry(value, version);
+    if (entry) entries[key] = entry;
+  }
+  return { version: TRANSLATE_STORE_VERSION, entries };
 }
 
 /* -------------------------------------------------------- LLM 服务与模型目录 */
@@ -511,11 +586,16 @@ async function quietReasoningEffort(llm, selection) {
   }
 }
 
-function buildPrompt(texts, offset) {
+function buildPrompt(texts, offset, target) {
   const last = offset + texts.length;
   const body = texts.map((text, index) => `<<<${offset + index + 1}>>>\n${text}`).join("\n\n");
+  const language = TARGET_LABEL[target] ?? TARGET_LABEL[DEFAULT_TARGET];
+  const nouns =
+    target === "en"
+      ? "1. 专有名词保持原样，不要意译：SKILL.md、shadcn/ui、GSAP、Tailwind CSS、Codex、Claude、MCP、API、DeepSeek。"
+      : "1. 专有名词保留英文：SKILL.md、shadcn/ui、GSAP、Tailwind CSS、Codex、Claude、MCP、API、DeepSeek。";
   return [
-    `把下面 ${texts.length} 条英文的技能描述翻成简体中文。`,
+    `把下面 ${texts.length} 条技能 / 工具的描述翻成${language}（原文可能是英文，也可能是别的语言，按它本来的语言翻）。`,
     "",
     "输出格式（必须严格遵守）：",
     `- 每条译文前面顶格写它自己的编号标记，例如 <<<${offset + 1}>>>，标记单独占一行`,
@@ -523,7 +603,7 @@ function buildPrompt(texts, offset) {
     `- 编号从 ${offset + 1} 到 ${last}，一共 ${texts.length} 条，不要漏`,
     "",
     "翻译要求：",
-    "1. 专有名词保留英文：SKILL.md、shadcn/ui、GSAP、Tailwind CSS、Codex、Claude、MCP、API、DeepSeek。",
+    nouns,
     "2. 语气像产品界面文案，简洁，不要逐字硬译、不要展开解释。",
     "3. 原文被截断时照原样翻完，不要补充原文没有的内容。",
     "",
@@ -531,9 +611,10 @@ function buildPrompt(texts, offset) {
   ].join("\n");
 }
 
-function buildSinglePrompt(text) {
+function buildSinglePrompt(text, target) {
+  const language = TARGET_LABEL[target] ?? TARGET_LABEL[DEFAULT_TARGET];
   return [
-    "把下面这句英文的技能描述翻成简体中文。",
+    `把下面这句技能描述翻成${language}。`,
     "只输出译文本身，一行，不要编号、不要引号、不要解释。",
     "专有名词保留英文（SKILL.md、shadcn/ui、GSAP、Codex、MCP、API 等）。",
     "",
@@ -626,14 +707,15 @@ function parseBatch(raw, offset, expected) {
   return parseMarked(raw, offset, expected) ?? parseJsonArray(raw, offset, expected) ?? parseNumbered(raw, offset, expected);
 }
 
-/** 单条译文清洗：去掉模型爱加的前后缀。 */
-function cleanSingle(raw) {
+/** 单条译文清洗：去掉模型爱加的前后缀（目标语言不同，前缀词也不同）。 */
+function cleanSingle(raw, target) {
   let text = String(raw ?? "").trim();
   if (!text) return null;
   text = text.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/, "").trim();
   text = text.replace(/^<<<\s*\d+\s*>>>\s*/, "").trim();
   text = text.replace(/^\d{1,2}\s*[.、)．]\s*/, "").trim();
   text = text.replace(/^(译文|翻译|中文)\s*[:：]\s*/, "").trim();
+  if (target === "en") text = text.replace(/^(translation|translated|english)\s*[:：]\s*/i, "").trim();
   text = text.replace(/^["'“”「『]/, "").replace(/["'“”」』]$/, "").trim();
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
   if (lines.length > 1) text = lines[0].trim();
@@ -656,8 +738,8 @@ async function runPool(items, limit, worker) {
   return out;
 }
 
-/** 一次模型调用，只负责取回纯文本。 */
-async function callModel(ctx, llm, selection, effort, prompt, maxTokens) {
+/** 一次模型调用，只负责取回纯文本。timeoutMs 由调用方按剩余总预算收紧。 */
+async function callModel(ctx, llm, selection, effort, prompt, maxTokens, timeoutMs = MODEL_TIMEOUT_MS) {
   let raw = "";
   let failure = null;
   try {
@@ -666,7 +748,7 @@ async function callModel(ctx, llm, selection, effort, prompt, maxTokens) {
       model: selection.model,
       maxTokens,
       ...(effort === undefined ? {} : { reasoningEffort: effort }),
-      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
     });
     for await (const chunk of stream) {
@@ -693,10 +775,10 @@ async function callModel(ctx, llm, selection, effort, prompt, maxTokens) {
 }
 
 /**
- * 用指定模型翻译。分批请求 + 标记协议解析 + 单条补齐，
+ * 用指定模型翻译成 target 语言。分批请求 + 标记协议解析 + 单条补齐，
  * 返回与 texts 等长的数组（允许部分为 null），全部失败时 values 为 null。
  */
-async function modelTranslate(ctx, texts, selection) {
+async function modelTranslate(ctx, texts, selection, target) {
   const llm = llmService(ctx);
   if (!llm?.stream) return { values: null, failure: { code: "NO_LLM", message: "宿主没有提供 LLM 服务" } };
   if (!selection?.provider || !selection?.model) {
@@ -712,7 +794,8 @@ async function modelTranslate(ctx, texts, selection) {
     batches.push({ offset, slice: texts.slice(offset, offset + MODEL_BATCH_SIZE) });
   }
 
-  /* 分批并发：13 条 = 3 批，串行要 3 个往返，并发只等最慢那批 */
+  /* 分批跑。并发由 MODEL_CONCURRENCY 说了算（默认 1：本地模型代理本身是串行的），
+     每一批拿到的超时不会超过剩下多少总预算，所以 75 s 是硬上限而不是「批间才检查」。 */
   await runPool(batches, MODEL_CONCURRENCY, async (batch) => {
     if (Date.now() > deadline) {
       errors.push({ code: "TIMEOUT", message: "模型翻译超时" });
@@ -723,8 +806,9 @@ async function modelTranslate(ctx, texts, selection) {
       llm,
       selection,
       effort,
-      buildPrompt(batch.slice, batch.offset),
-      Math.min(8192, 900 + batch.slice.length * 300)
+      buildPrompt(batch.slice, batch.offset, target),
+      Math.min(8192, 900 + batch.slice.length * 300),
+      Math.min(MODEL_TIMEOUT_MS, Math.max(1000, deadline - Date.now()))
     );
     if (result.error) {
       errors.push(result.error);
@@ -747,12 +831,20 @@ async function modelTranslate(ctx, texts, selection) {
   });
   await runPool(missing.slice(0, 8), MODEL_CONCURRENCY, async (index) => {
     if (Date.now() > deadline) return;
-    const result = await callModel(ctx, llm, selection, effort, buildSinglePrompt(texts[index]), 600);
+    const result = await callModel(
+      ctx,
+      llm,
+      selection,
+      effort,
+      buildSinglePrompt(texts[index], target),
+      600,
+      Math.min(MODEL_TIMEOUT_MS, Math.max(1000, deadline - Date.now()))
+    );
     if (result.error) {
       errors.push(result.error);
       return;
     }
-    const text = cleanSingle(result.text);
+    const text = cleanSingle(result.text, target);
     if (text) values[index] = text;
   });
 
@@ -765,9 +857,19 @@ async function modelTranslate(ctx, texts, selection) {
 
 /* ---------------------------------------------------------------- 机翻回退 */
 
-async function machineOne(text) {
-  const query = text.length > TRANSLATE_MAX_BYTES ? text.slice(0, TRANSLATE_MAX_BYTES) : text;
-  const url = `${TRANSLATE_ENDPOINT}?q=${encodeURIComponent(query)}&langpair=en|zh-CN`;
+/** 机翻只按「源语言 → 目标语言」走；认不出源语言时按英文处理（与旧行为一致）。 */
+function machineLangPair(source, target) {
+  const from = MACHINE_LANG[source === "und" ? "en" : source] ?? "en";
+  const to = MACHINE_LANG[target] ?? MACHINE_LANG[DEFAULT_TARGET];
+  return from === to ? null : `${from}|${to}`;
+}
+
+async function machineOne(item, target) {
+  const pair = machineLangPair(item?.lang, target);
+  if (!pair) return null;
+  const text = String(item?.text ?? "");
+  const query = text.length > TRANSLATE_MAX_CHARS ? text.slice(0, TRANSLATE_MAX_CHARS) : text;
+  const url = `${TRANSLATE_ENDPOINT}?q=${encodeURIComponent(query)}&langpair=${encodeURIComponent(pair)}`;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(MACHINE_TIMEOUT_MS) });
     if (!response.ok) return null;
@@ -782,8 +884,8 @@ async function machineOne(text) {
 }
 
 /** 有并发上限的批量机翻；串行等待会把一次请求拖到分钟级。 */
-async function machineTranslate(texts) {
-  const out = await runPool(texts, MACHINE_CONCURRENCY, machineOne);
+async function machineTranslate(items, target) {
+  const out = await runPool(items, MACHINE_CONCURRENCY, (item) => machineOne(item, target));
   return out.map((value) => (typeof value === "string" ? value : null));
 }
 
@@ -885,19 +987,24 @@ export function apply(ctx, config) {
         settings.translateModel?.provider && settings.translateModel?.model
           ? settings.translateModel
           : defaultSelection(ctx);
+      /* 探针和真实翻译走同一条判定：已经是指定语言的描述不必再翻。 */
+      const probeLanguage = normalizeTarget(settings.translateLanguage) ?? DEFAULT_TARGET;
       /* 拿真技能描述跑一遍，才能真正验证分批 + 标记解析 */
       const scanned = await scanSkills();
       const sample = scanned
         .map((skill) => skill.description)
-        .filter((description) => description && !looksChinese(description));
-      const texts = sample.length ? sample : ["Design banners for social media, ads, and website heroes."];
+        .filter((description) => description && detectLang(description) !== probeLanguage);
+      const texts = sample.length
+        ? sample
+        : [probeLanguage === "en" ? "把本地文件系统暴露给模型，用于读写目录。" : "Design banners for social media, ads, and website heroes."];
       const started = Date.now();
-      const result = await modelTranslate(ctx, texts, probeTarget);
+      const result = await modelTranslate(ctx, texts, probeTarget, probeLanguage);
       const values = result.values ?? [];
       await updateDiagnostics({
         probe: {
           at: new Date().toISOString(),
           target: probeTarget,
+          language: probeLanguage,
           ms: Date.now() - started,
           total: texts.length,
           filled: values.filter(Boolean).length,
@@ -1377,18 +1484,29 @@ export function apply(ctx, config) {
           const body = await request.json();
           const provider = String(body?.provider ?? "").trim();
           const model = String(body?.model ?? "").trim();
+          const language = normalizeTarget(body?.target);
+          const patch = language ? { translateLanguage: language } : {};
           if (!provider || !model) {
-            await saveSettings({ translateModel: null });
-            return json({ ok: true, selected: null });
+            await saveSettings({ ...patch, translateModel: null });
+            return json({ ok: true, selected: null, language });
           }
-          await saveSettings({ translateModel: { provider, model } });
-          return json({ ok: true, selected: { provider, model } });
+          await saveSettings({ ...patch, translateModel: { provider, model } });
+          return json({ ok: true, selected: { provider, model }, language });
         }
         const catalog = await listModelCatalog(ctx);
-        const saved = (await loadSettings()).translateModel ?? null;
+        const settings = await loadSettings();
+        const saved = settings.translateModel ?? null;
         const fallback = defaultSelection(ctx);
         const usable = saved && saved.provider && saved.model ? saved : null;
-        return json({ ok: true, providers: catalog.providers, failures: catalog.failures, selected: usable ?? fallback, recommended: fallback, saved: usable });
+        return json({
+          ok: true,
+          providers: catalog.providers,
+          failures: catalog.failures,
+          selected: usable ?? fallback,
+          recommended: fallback,
+          saved: usable,
+          language: normalizeTarget(settings.translateLanguage) ?? DEFAULT_TARGET,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -1424,31 +1542,45 @@ export function apply(ctx, config) {
             ? settings.translateModel
             : null;
         const target = (requested?.provider && requested?.model ? requested : null) ?? savedTarget ?? defaultSelection(ctx);
+        /* 目标语言 = 页面当前的界面语言。顺手记一笔：加载期探针和「没带 target 的老页面」都用它。 */
+        const requestedLanguage = normalizeTarget(body?.target);
+        const language = requestedLanguage ?? normalizeTarget(settings.translateLanguage) ?? DEFAULT_TARGET;
+        if (requestedLanguage && requestedLanguage !== normalizeTarget(settings.translateLanguage)) {
+          try {
+            await saveSettings({ translateLanguage: requestedLanguage });
+          } catch {
+            /* 语言偏好写失败不影响本次翻译 */
+          }
+        }
 
         const results = {};
         const pending = [];
         for (const item of items) {
-          if (looksChinese(item.text)) {
-            results[item.id] = { zh: item.text, engine: "source", model: null, cached: true };
+          const sourceLang = detectLang(item.text);
+          /* 原文已经是目标语言：直接当译文回，既不进批次也不花 token */
+          if (sourceLang === language) {
+            results[item.id] = { text: item.text, engine: "source", model: null, lang: language, sourceLang, cached: true };
             continue;
           }
           const key = textKey(item.text);
-          const entry = store.entries[key];
-          if (entry?.zh && !force) {
+          const entry = store.entries[key]?.[language];
+          if (entry?.text && !force) {
             results[item.id] = {
-              zh: entry.zh,
+              text: entry.text,
               engine: entry.engine ?? "machine",
               model: entry.model ?? null,
               at: entry.at ?? null,
+              lang: language,
+              sourceLang,
               cached: true,
             };
             continue;
           }
-          pending.push({ id: item.id, text: item.text, key });
+          pending.push({ id: item.id, text: item.text, key, sourceLang });
         }
 
         if (cachedOnly) {
-          return json({ ok: true, engine: "cache", target, results, pending: pending.map((item) => item.id) });
+          return json({ ok: true, engine: "cache", target, language, results, pending: pending.map((item) => item.id) });
         }
 
         let engine = pending.length ? "none" : "cache";
@@ -1456,7 +1588,7 @@ export function apply(ctx, config) {
 
         if (pending.length) {
           const modeled = target
-            ? await modelTranslate(ctx, pending.map((item) => item.text), target)
+            ? await modelTranslate(ctx, pending.map((item) => item.text), target, language)
             : { values: null, failure: { code: "NO_MODEL", message: "没有可用的翻译模型" } };
           const modelLabel = target ? `${target.provider}/${target.model}` : null;
           if (modeled.values) {
@@ -1464,13 +1596,23 @@ export function apply(ctx, config) {
             const at = new Date().toISOString();
             const leftover = [];
             pending.forEach((item, index) => {
-              const zh = modeled.values[index];
-              if (!zh) {
+              const text = modeled.values[index];
+              if (!text) {
                 leftover.push(item);
                 return;
               }
-              store.entries[item.key] = { zh, engine: "model", model: modelLabel, at };
-              results[item.id] = { zh, engine: "model", model: modelLabel, at, cached: false };
+              const slots = store.entries[item.key] ?? {};
+              slots[language] = { text, engine: "model", model: modelLabel, at };
+              store.entries[item.key] = slots;
+              results[item.id] = {
+                text,
+                engine: "model",
+                model: modelLabel,
+                at,
+                lang: language,
+                sourceLang: item.sourceLang,
+                cached: false,
+              };
             });
             pending.length = 0;
             pending.push(...leftover);
@@ -1483,23 +1625,46 @@ export function apply(ctx, config) {
           }
 
           if (pending.length && allowMachine) {
-            const values = await machineTranslate(pending.map((item) => item.text));
+            const values = await machineTranslate(
+              pending.map((item) => ({ text: item.text, lang: item.sourceLang })),
+              language
+            );
             const at = new Date().toISOString();
             let any = false;
             pending.forEach((item, index) => {
-              const zh = values[index];
-              if (!zh) {
-                results[item.id] = { zh: null, engine: "none", model: null, cached: false };
-                return;
-              }
+              const text = values[index];
+              if (!text) return;
               any = true;
-              store.entries[item.key] = { zh, engine: "machine", model: null, at };
-              results[item.id] = { zh, engine: "machine", model: null, at, cached: false };
+              const slots = store.entries[item.key] ?? {};
+              slots[language] = { text, engine: "machine", model: null, at };
+              store.entries[item.key] = slots;
+              results[item.id] = {
+                text,
+                engine: "machine",
+                model: null,
+                at,
+                lang: language,
+                sourceLang: item.sourceLang,
+                cached: false,
+              };
             });
             if (any) {
               engine = engine === "model" ? "model+machine" : "machine";
               await saveStore();
             }
+          }
+
+          /* 两轮都没拿到：显式标成 none，界面上说「未译出」，而不是留一片空白 */
+          for (const item of pending) {
+            if (results[item.id]) continue;
+            results[item.id] = {
+              text: null,
+              engine: "none",
+              model: null,
+              lang: language,
+              sourceLang: item.sourceLang,
+              cached: false,
+            };
           }
         }
 
@@ -1507,6 +1672,7 @@ export function apply(ctx, config) {
         const counts = {
           model: settled.filter((entry) => entry?.engine === "model").length,
           machine: settled.filter((entry) => entry?.engine === "machine").length,
+          source: settled.filter((entry) => entry?.engine === "source").length,
           none: settled.filter((entry) => entry?.engine === "none").length,
         };
 
@@ -1515,6 +1681,7 @@ export function apply(ctx, config) {
             lastTranslate: {
               at: new Date().toISOString(),
               target,
+              language,
               requested: items.length,
               engine,
               counts,
@@ -1525,7 +1692,7 @@ export function apply(ctx, config) {
           /* 诊断写失败不影响结果 */
         }
 
-        return json({ ok: true, engine, target, modelError, counts, results });
+        return json({ ok: true, engine, target, language, modelError, counts, results });
       } catch (error) {
         return fail(error);
       }

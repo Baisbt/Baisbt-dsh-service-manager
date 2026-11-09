@@ -105,14 +105,14 @@
     stale: scenario === "stale",
     unknown: scenario === "unknown",
     running: {
-      version: scenario === "stale" ? "0.9.1" : "0.10.0",
+      version: scenario === "stale" ? "0.9.1" : "0.12.0",
       startedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString(),
       pid: 4321,
       node: "24.19.0",
     },
-    disk: scenario === "unknown" ? null : { version: "0.10.0", mtime: new Date().toISOString() },
+    disk: scenario === "unknown" ? null : { version: "0.12.0", mtime: new Date().toISOString() },
     /* page 场景：故意给一个和 client.js 构建戳不同的 commit */
-    build: { version: "0.10.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
+    build: { version: "0.12.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
     dir: "C:/profile/node_modules/dsh-service-manager",
     profileDir: "C:/profile",
   };
@@ -143,21 +143,33 @@
     }
     if (path === "/api/service-manager/skills/translate") {
       const body = JSON.parse(init.body);
+      /* 预览里只准备了中文译文：英文界面下英文原文算「已经是目标语言」，中文原文则没有译文 */
+      const target = body.target === "en" ? "en" : "zh";
       const results = {};
       let engine = "cache";
       for (const item of body.items) {
         const zh = zhByText.get(item.text);
-        if (zh) {
-          results[item.id] = { zh, engine: "model", model: "agent2api/ds", cached: true };
-        } else if (/[\u4e00-\u9fff]/.test(item.text ?? "")) {
-          results[item.id] = { zh: item.text, engine: "source", cached: true };
+        const chinese = /[\u4e00-\u9fff]/.test(item.text ?? "");
+        if (target === "zh" && zh) {
+          results[item.id] = { text: zh, engine: "model", model: "agent2api/ds", cached: true };
+        } else if (target === "zh" && chinese) {
+          results[item.id] = { text: item.text, engine: "source", cached: true };
+        } else if (target === "en" && !chinese) {
+          results[item.id] = { text: item.text, engine: "source", cached: true };
         } else {
-          results[item.id] = { zh: null, engine: "none", cached: false };
+          results[item.id] = { text: null, engine: "none", cached: false };
           engine = "model";
         }
         void legacy;
       }
-      return json({ ok: true, engine, results, target: { provider: "agent2api", model: "ds" }, modelError: null });
+      return json({
+        ok: true,
+        engine,
+        language: target,
+        target: { provider: "agent2api", model: "ds" },
+        results,
+        modelError: null,
+      });
     }
     return json({ ok: true });
   };
@@ -166,6 +178,8 @@
   const definition = window.__PLUGIN;
   const mod = definition.factory((id) => {
     if (id === "react") return window.React;
+    /* tooltip 走 react-dom 的 createPortal，和宿主静态模块表给的一致 */
+    if (id === "react-dom") return window.ReactDOM;
     throw new Error(`unexpected require(${id})`);
   });
 

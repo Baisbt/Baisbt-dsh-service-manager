@@ -1,14 +1,25 @@
 /**
  * 离线渲染校验：用最小 React 替身在 Node 里跑一遍 Client，确认两页 + 抽屉都能构建出树。
  * 只做结构校验，不涉及样式与交互。用 node test/render-smoke.mjs 运行。
+ *
+ * 断言的是编译产物 client.js；直接跑本文件时先确认它不是旧构建（`pnpm test` 会先编译）。
  */
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 /* 相对于本文件定位 client.js，仓库搬到哪都能跑。 */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const source = await readFile(path.join(HERE, "..", "client.js"), "utf8");
+const parent = path.join(HERE, "..");
+
+/* 源码比产物新 = 这份断言跑的是旧构建，先提醒再继续（不静默） */
+const input = await stat(path.join(parent, "client.tsx")).catch(() => null);
+const output = await stat(path.join(parent, "client.js")).catch(() => null);
+if (input && output && input.mtimeMs > output.mtimeMs) {
+  console.log("⚠ client.tsx 比 client.js 新 —— 下面断言的是旧构建，先跑 pnpm build\n");
+}
+
+const source = await readFile(path.join(parent, "client.js"), "utf8");
 
 const FRAGMENT = Symbol("Fragment");
 const noop = () => {};
@@ -193,19 +204,27 @@ const servers = [
 store = { loading: false, error: "", servers, skills };
 
 const skillEntries = {
-  "C:/s/banner/SKILL.md": { zh: "为社交媒体和广告设计横幅。", engine: "model", model: "agent2api/ds" },
-  "C:/s/brand/SKILL.md": { zh: "品牌语调与识别。", engine: "machine" },
-  "C:/s/slides/SKILL.md": { zh: null, engine: "none" },
+  "C:/s/banner/SKILL.md": { text: "为社交媒体和广告设计横幅。", engine: "model", model: "agent2api/ds" },
+  "C:/s/brand/SKILL.md": { text: "品牌语调与识别。", engine: "machine" },
+  "C:/s/slides/SKILL.md": { text: null, engine: "none" },
 };
 
 const toolEntries = {
-  "mcp-tavily:tavily_search": { zh: "在网络上搜索并返回排序结果。", engine: "model", model: "agent2api/ds" },
-  "mcp-tavily:tavily_search#query": { zh: "搜索关键词", engine: "model", model: "agent2api/ds" },
+  "mcp-tavily:tavily_search": { text: "在网络上搜索并返回排序结果。", engine: "model", model: "agent2api/ds" },
+  "mcp-tavily:tavily_search#query": { text: "搜索关键词", engine: "model", model: "agent2api/ds" },
 };
 
 const cases = [
   { label: "skill (无译文)", tab: "skill" },
   { label: "skill (模型/机翻/未译出)", tab: "skill", entries: skillEntries },
+  /* 原文本来就是目标语言时 Host 会回 engine=source：卡片该照原样显示，不能装成译文 */
+  {
+    label: "skill (原文即目标语言)",
+    tab: "skill",
+    sourceOnly: true,
+    entries: { "C:/s/banner/SKILL.md": { text: "Design banners for social media and ads.", engine: "source" } },
+    rejectClass: "smTranslated",
+  },
   { label: "skill (抽屉)", tab: "skill", entries: skillEntries, drawer: skills[0] },
   { label: "skill (抽屉：路径旁的文件管理器按钮)", tab: "skill", drawer: skills[0], expectAria: "在文件管理器中显示" },
   { label: "skill (抽屉：按钮文案随语言)", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Show in file manager" },
@@ -310,7 +329,9 @@ for (const item of cases) {
     const zh = (item.locale ?? "zh").startsWith("zh");
     const checks = [];
     if (item.tab === "skill" && !item.drawer) {
-      if (item.entries) {
+      if (item.sourceOnly) {
+        checks.push(["原文照原样显示", text.includes("Design banners for social media")]);
+      } else if (item.entries) {
         checks.push(["中文译文", text.includes("为社交媒体和广告设计横幅")]);
         checks.push(["模型译标签", text.includes(zh ? "模型译" : "Model")]);
       } else {

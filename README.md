@@ -8,7 +8,7 @@ Add, edit, enable, disable and delete MCP servers without touching YAML · brows
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.0--rc.1-6f42c1)](#compatibility)
-[![Build](https://img.shields.io/badge/build-none-brightgreen)](#development)
+[![Build](https://img.shields.io/badge/build-tsc%20%C2%B7%20jsx-blue)](#development)
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 
 English · [简体中文](README.zh-CN.md)
@@ -42,6 +42,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 
 - **Browse everything DSH can see**, with each skill's summary and body kept as two layers
 - **Translate summaries with your own model** — the picker lists every provider × model configured in DSH, defaults to your default model, and remembers the choice
+- **Follows the interface language** — summaries are translated into the language DSH is set to; text that is already in that language is passed through untouched, so it costs no tokens
 - **`译文 / 原文` toggle** for the whole list, **↻** to re-translate a single card, and a batch re-translate in the toolbar
 - **Cached on disk** — the second visit is zero requests
 - **Failure is visible** — when the model cannot deliver, the card says `机翻` (machine translation) rather than pretending it worked
@@ -183,7 +184,7 @@ Translation goes through `ctx.get("llm").stream(...)` with the model you picked,
 - DSH `>= 0.2.0-rc.1 < 0.3.0`
 - Windows / macOS / Linux desktop
 - Both themes, automatically
-- No build step, no runtime dependencies
+- TypeScript + JSX client, one `pnpm build` step, **no runtime dependencies**
 
 ## FAQ
 
@@ -236,7 +237,18 @@ No. Uninstalling removes the dependency entry, the bundle entry and the `node_mo
 
 ## Development
 
-No build step: `index.js` and `client.js` are plain ESM that runs directly.
+Two halves, two toolchains:
+
+- **Host half** — [index.js](index.js), plain ESM, no build step. DSH imports it directly.
+- **Client half** — [client.tsx](client.tsx), TypeScript + JSX, compiled to `client.js` by `tsc`. React is never bundled: the compiled factory takes it from the host's frozen module table, and the output stays a plain script (`window.__ModuleLoader__.load(...)`), not an ES module.
+
+```bash
+pnpm install    # once — typescript + React type packages, dev only
+pnpm build      # client.tsx → client.js
+pnpm test       # build, then both smoke tests
+```
+
+`client.js` is a build artifact, but it is committed on purpose: it is what the plugin serves, so installing needs no compiler. Never edit it by hand — edit `client.tsx` and rebuild.
 
 ```bash
 # Offline render smoke test — renders both views and both drawers,
@@ -250,7 +262,7 @@ node test/host-smoke.mjs
 Before releasing, stamp the build so both halves describe themselves:
 
 ```bash
-node scripts/stamp.mjs          # write version + commit + build time into BUILD, then commit
+node scripts/stamp.mjs          # write version + commit + build time into BUILD, rebuild client.js, then commit
 node scripts/stamp.mjs --check  # verify the version matches package.json
 ```
 
@@ -268,15 +280,28 @@ That preview environment is also the fastest way to iterate on the UI without in
 
 ## Changelog
 
+### 0.12.0
+
+- **The client half is TypeScript + JSX now.** `client.tsx` is the source; `pnpm build` compiles it to `client.js` with `tsc` — still a single plain script, still taking React from the host's frozen module table, no bundler and no second runtime. A type error now fails the build instead of the page.
+- **Interaction pass.** Server rows have a visible keyboard focus; expanding a row animates its height and collapses to an unfocusable zero-height box; one shared reduced-motion policy replaces two scattered one-liners; native `title` tooltips became a portalled bubble; the two destructive-confirmation dialogs became one component; skeletons are drawn to the real layout; a failed load shows an error state instead of "no servers yet"; and the table reflows by container width rather than window width.
+
+### 0.11.0
+
+- **Translation follows the interface language.** Skill and tool summaries are translated into whatever language DSH is set to — the model prompt and the machine-translation fallback no longer assume English → Simplified Chinese.
+- **Text already in that language is skipped** before any request is made, so it costs no tokens.
+- **The cache is stored per target language** (format v3). Existing Chinese translations are migrated into the `zh` slot, so upgrading does not re-translate anything.
+- The 75-second batch budget is now a hard limit: each request's timeout is the smaller of 45 s and what is left of the budget.
+
 ### 0.10.0
 
 - **Removed invocation stats.** The stats page and all of its collection code are gone, leaving two pages: MCP servers and skills. The old data file `<profile>/.dsh-service-manager/stats.json` is now an orphan and can be deleted by hand — the plugin no longer reads or writes it.
 
 ## Contributing
 
-Issues and pull requests are welcome. Two things that make a change easy to accept:
+Issues and pull requests are welcome. Three things that make a change easy to accept:
 
 - Keep the Host half free of new runtime dependencies — it is plain ESM on purpose
+- Keep the Client half on the host's copy of React — never bundle a second framework into `client.js`
 - Run `node test/render-smoke.mjs` before opening a PR; it catches render breakage without a browser
 
 ## License
