@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.8.2", commit: "16941dc", built: "2026-11-09T00:53:26.756Z" };
+    const BUILD = { version: "0.9.0", commit: "3af6d3e", built: "2026-11-09T02:32:38.535Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -113,6 +113,12 @@ window.__ModuleLoader__.load({
         verRunning: "进程",
         verStarted: "启动于",
         verDismiss: "忽略",
+        hideStat: "从统计中隐藏",
+        hiddenTitle: "已隐藏 {n} 项",
+        hiddenHint: "只隐藏显示，数据仍在，可随时恢复",
+        restoreStat: "恢复",
+        kindMcp: "MCP",
+        kindSkill: "技能",
         edit: "编辑",
         remove: "删除",
         enable: "启用",
@@ -267,6 +273,12 @@ window.__ModuleLoader__.load({
         verRunning: "process",
         verStarted: "started",
         verDismiss: "Dismiss",
+        hideStat: "Hide from stats",
+        hiddenTitle: "{n} hidden",
+        hiddenHint: "Display only — the data stays and can be restored anytime",
+        restoreStat: "Restore",
+        kindMcp: "MCP",
+        kindSkill: "Skill",
         edit: "Edit",
         remove: "Remove",
         enable: "Enable",
@@ -532,6 +544,14 @@ window.__ModuleLoader__.load({
       svg(p, [
         h("rect", { key: "a", x: 4, y: 4, width: 8, height: 8, rx: 1.6, stroke: "currentColor", strokeWidth: 1.4 }),
       ]);
+    /* 「从统计隐藏」：一只被划掉的眼睛 */
+    const IconEyeOff = (p) =>
+      svg(p, [
+        h("path", { key: "a", d: "M2.4 8s2.2-3.3 5.6-3.3c1 0 1.9.3 2.7.7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
+        h("path", { key: "b", d: "M13.6 8s-2.2 3.3-5.6 3.3c-1 0-1.9-.3-2.7-.7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
+        h("circle", { key: "c", cx: 8, cy: 8, r: 1.9, stroke: "currentColor", strokeWidth: 1.3 }),
+        h("path", { key: "d", d: "M3 13 13 3", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
+      ]);
     const IconAlert = (p) =>
       svg(p, [
         h("circle", { key: "a", cx: 8, cy: 8, r: 5.4, stroke: "currentColor", strokeWidth: 1.4 }),
@@ -748,7 +768,7 @@ window.__ModuleLoader__.load({
 .smLinkBtn:hover{color:var(--dsw-alias-label-primary)}
 .smLinkBtn:disabled{color:var(--dsw-alias-label-dimmed);cursor:default;text-decoration:none}
 .smBars{display:flex;flex-direction:column;gap:14px}
-.smBar{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px;align-items:center;gap:14px}
+.smBar{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px 48px;align-items:center;gap:14px}
 .smBarName{font-size:13px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smBarTrack{height:6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-active);overflow:hidden}
 .smBarFill{display:block;position:relative;height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary);transition:width .3s cubic-bezier(.2,.8,.2,1);overflow:hidden}
@@ -765,6 +785,20 @@ window.__ModuleLoader__.load({
 .smSparkOk{fill:var(--dsw-alias-state-business-primary);opacity:.6}
 .smSparkFail{fill:var(--dsw-alias-state-error-primary)}
 .smSparkEmpty{fill:var(--dsw-alias-label-dimmed);opacity:.45}
+/* 行尾动作：平时不出现，hover / 键盘聚焦才显形——统计页不该变成一排按钮 */
+.smRowAction{display:inline-flex;align-items:center;justify-content:center;width:100%;height:20px;padding:0 4px;border:0;
+  border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:16px;
+  cursor:pointer;opacity:0;transition:opacity .12s ease,background .12s ease,color .12s ease}
+.smBar:hover .smRowAction,.smBar:focus-within .smRowAction{opacity:1}
+.smRowAction:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.smRowAction:focus-visible{opacity:1;outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
+/* 「已隐藏」里的恢复按钮常显，且用链接色提示这是可撤销动作 */
+.smRowActionText{opacity:1;color:var(--dsw-alias-link)}
+.smBarHidden .smBarName{color:var(--dsw-alias-label-tertiary)}
+.smBarHidden .smBarFill{background:var(--dsw-alias-label-dimmed);opacity:.55}
+.smKindTag{margin-left:6px;padding:0 4px;border-radius:3px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);
+  background:var(--dsw-alias-interactive-bg-hover)}
+.smHiddenSection{margin-top:8px;padding-top:16px;border-top:1px solid var(--dsw-alias-border-l2)}
 .smAct{display:flex;flex-direction:column;gap:10px;padding:6px 0 2px}
 .smActChart{width:100%;max-width:420px;height:56px;display:block}
 .smActMcp{fill:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary)}
@@ -779,9 +813,9 @@ window.__ModuleLoader__.load({
   font:inherit;font-size:12px;line-height:18px;cursor:pointer;transition:color .12s ease,border-color .12s ease}
 .smChip:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4)}
 .smErrList{display:flex;flex-direction:column;gap:10px}
-/* 错误行必须和统计行共用同一套列宽：名字列 180、数值列 52、末列 56（错误行留空）。
+/* 错误行必须和统计行共用同一套列宽：名字列 180、数值列 52、末两列 56/48（错误行留空）。
    两套模板各写各的，就会出现「错误条比统计条长一截、起点还偏右」——量过：起点差 120px、终点差 66px。 */
-.smErrRow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px;align-items:center;gap:14px;width:100%;
+.smErrRow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px 48px;align-items:center;gap:14px;width:100%;
   padding:4px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
 .smErrRowBtn{cursor:pointer;border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;margin:0 -8px;width:calc(100% + 16px);
   transition:background .12s ease}
@@ -900,9 +934,11 @@ window.__ModuleLoader__.load({
   .smRow{grid-template-columns:1fr auto;grid-template-areas:"name actions" "endpoint endpoint" "status tools";row-gap:8px;align-items:start}
   .smRowChevron{top:14px;margin-top:0}
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
-  .smBar{grid-template-columns:1fr 56px;grid-template-areas:"name value" "track track";row-gap:6px}
+  .smBar{grid-template-columns:1fr 56px 48px;grid-template-areas:"name value action" "track track track";row-gap:6px}
   .smBarName{grid-area:name}.smBarTrack{grid-area:track}.smBarValue{grid-area:value}
-  .smErrRow{grid-template-columns:1fr 56px;grid-template-areas:"name value" "track track";row-gap:6px}
+  .smRowAction{grid-area:action;opacity:1}
+  .smSpark{display:none}
+  .smErrRow{grid-template-columns:1fr 56px 48px;grid-template-areas:"name value action" "track track track";row-gap:6px}
   .smErrName{grid-area:name}
 }
 `;
@@ -2485,14 +2521,16 @@ window.__ModuleLoader__.load({
           : null
       );
     }
-    function StatsView({ t, state }) {
+    function StatsView({ t, state, reload, notify }) {
       const [selected, setSelected] = useState(null);
       const rows = state.stats ?? [];
+      /* 隐藏只影响展示：这些行不参与图表与「已用 n/m」，但要单独列出来，否则无法恢复 */
+      const hiddenRows = state.statsHidden ?? [];
 
       if (state.loading && !state.stats) {
         return h("div", { className: "smSkeleton", style: { height: 120, borderRadius: 12 } });
       }
-      if (!rows.length) {
+      if (!rows.length && !hiddenRows.length) {
         return h(
           "div",
           { className: "smEmpty" },
@@ -2503,6 +2541,20 @@ window.__ModuleLoader__.load({
       }
 
       const keyOf = (row) => `${row.kind}:${row.name}`;
+
+      /* 隐藏 / 恢复：Host 只改展示不动数据，点错了能一键恢复 */
+      const setHidden = async (key, hidden) => {
+        try {
+          await request("/api/service-manager/stats/hide", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ key, hidden }),
+          });
+          await reload?.();
+        } catch (err) {
+          notify?.(err.message);
+        }
+      };
       const max = Math.max(...rows.map((row) => row.count), 1);
       const servers = rows.filter((row) => row.kind === "mcp");
       const skills = rows.filter((row) => row.kind === "skill");
@@ -2581,7 +2633,18 @@ window.__ModuleLoader__.load({
             )
           ),
           h("span", { className: "smBarValue" }, String(row.count)),
-          spark(row, `spark-${keyOf(row)}`)
+          spark(row, `spark-${keyOf(row)}`),
+          h(
+            "button",
+            {
+              type: "button",
+              className: "smRowAction",
+              title: t("hideStat"),
+              "aria-label": `${t("hideStat")}：${row.name}`,
+              onClick: () => setHidden(row.key ?? keyOf(row), true),
+            },
+            h(IconEyeOff, { size: 14 })
+          )
         );
 
       const section = (title, list, emptyText) => {
@@ -2823,6 +2886,54 @@ window.__ModuleLoader__.load({
         );
       }
 
+      /* 已隐藏只是一张清单：不画条形、不参与刻度，只回答「我藏了谁、怎么拿回来」 */
+      const hiddenSection = hiddenRows.length
+        ? h(
+            "section",
+            { className: "smSection smHiddenSection" },
+            h(
+              "div",
+              { className: "smSectionHead" },
+              h("h3", { className: "smSectionTitle" }, t("hiddenTitle").replace("{n}", String(hiddenRows.length))),
+              h("span", { className: "smSectionMeta" }, t("hiddenHint"))
+            ),
+            h(
+              "div",
+              { className: "smBars" },
+              hiddenRows.map((row) =>
+                h(
+                  "div",
+                  { key: `hidden-${row.key}`, className: "smBar smBarHidden", "data-idle": true },
+                  h(
+                    "span",
+                    { className: "smBarName", title: row.name },
+                    row.name,
+                    h("span", { className: "smKindTag" }, row.kind === "mcp" ? t("kindMcp") : t("kindSkill"))
+                  ),
+                  h(
+                    "span",
+                    { className: "smBarTrack" },
+                    h("span", { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } })
+                  ),
+                  h("span", { className: "smBarValue" }, String(row.count)),
+                  h("span", { className: "smSpark", "aria-hidden": "true" }),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className: "smRowAction smRowActionText",
+                      title: t("restoreStat"),
+                      "aria-label": `${t("restoreStat")}：${row.name}`,
+                      onClick: () => setHidden(row.key, false),
+                    },
+                    t("restoreStat")
+                  )
+                )
+              )
+            )
+          )
+        : null;
+
       return h(
         React.Fragment,
         null,
@@ -2832,10 +2943,11 @@ window.__ModuleLoader__.load({
           h("span", { className: "smStatsSince" }, since ? `${t("statSince")} ${since}` : t("statSinceUnknown")),
           h("span", { className: "smStatsRule" }, t("statRule"))
         ),
-        activitySection,
-        section(t("mcpcalls"), servers, t("statNoServers")),
-        section(t("skillcalls"), skills, t("statNoSkills")),
-        errorSection
+        rows.length ? activitySection : null,
+        rows.length ? section(t("mcpcalls"), servers, t("statNoServers")) : null,
+        rows.length ? section(t("skillcalls"), skills, t("statNoSkills")) : null,
+        rows.length ? errorSection : null,
+        hiddenSection
       );
     }
 
@@ -3042,7 +3154,7 @@ window.__ModuleLoader__.load({
               : null,
             tab === "mcp" ? h(McpView, { t, state, reload, notify }) : null,
             tab === "skill" ? h(SkillView, { t, state, reload, notify }) : null,
-            tab === "stats" ? h(StatsView, { t, state }) : null
+            tab === "stats" ? h(StatsView, { t, state, reload, notify }) : null
           )
         )
       );
@@ -3079,9 +3191,9 @@ window.__ModuleLoader__.load({
           servers: null,
           skills: null,
           stats: null,
+          statsHidden: null,
           version: null,
-        };
-        const listeners = new Set();
+        };        const listeners = new Set();
         const emit = () => listeners.forEach((fn) => fn());
         const set = (patch) => {
           store = { ...store, ...patch };
@@ -3116,7 +3228,12 @@ window.__ModuleLoader__.load({
             }
             if (scope === "stats" || scope === "all") {
               const payload = await request("/api/service-manager/stats");
-              set({ stats: payload.rows ?? [], statsSince: payload.since ?? null, statsDays: payload.days ?? [] });
+              set({
+                stats: payload.rows ?? [],
+                statsSince: payload.since ?? null,
+                statsDays: payload.days ?? [],
+                statsHidden: payload.hiddenRows ?? [],
+              });
             }
           } catch (error) {
             set({ error: error.message });

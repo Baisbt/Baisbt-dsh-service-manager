@@ -316,6 +316,32 @@ const cases = [
   { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh", drawer: skills[0], expectAria: "关闭" },
   { label: "en 抽屉关闭标签", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Close" },
   { label: "en 统计页", tab: "stats", locale: "en", expectText: "No calls recorded yet" },
+  {
+    label: "stats (行尾隐藏按钮)",
+    tab: "stats",
+    stats: statsRows,
+    expectClass: "smRowAction",
+  },
+  {
+    label: "stats (已隐藏清单)",
+    tab: "stats",
+    stats: statsRows,
+    statsHidden: [
+      { key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: 0, errors: {}, series: { ok: [], fail: [] } },
+    ],
+    expectTexts: ["已隐藏 1 项", "box", "恢复"],
+    expectClass: "smHiddenSection",
+  },
+  {
+    label: "stats (全部隐藏后仍能看到清单)",
+    tab: "stats",
+    stats: [],
+    statsHidden: [
+      { key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: 0, errors: {}, series: { ok: [], fail: [] } },
+    ],
+    expectTexts: ["已隐藏 1 项"],
+    rejectText: "还没有调用记录",
+  },
   /* 版本自述：三种读数（磁盘 / 进程 / 页面）决定横幅 */
   {
     label: "版本横幅：进程落后于磁盘 → 提示重启",
@@ -394,7 +420,12 @@ let failures = 0;
 
 for (const item of cases) {
   boot(item.locale ?? "zh");
-  store = { ...store, stats: item.stats ?? [], version: item.version ?? null };
+  store = {
+    ...store,
+    stats: item.stats ?? [],
+    statsHidden: item.statsHidden ?? null,
+    version: item.version ?? null,
+  };
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;

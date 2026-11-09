@@ -35,7 +35,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.8.2", commit: "16941dc", built: "2026-11-09T00:53:26.756Z" };
+const BUILD = { version: "0.9.0", commit: "3af6d3e", built: "2026-11-09T02:32:38.535Z" };
 
 function readSelfVersion() {
   try {
@@ -785,9 +785,11 @@ async function machineTranslate(texts) {
 
 /* ------------------------------------------------------------------ 统计 */
 
-const STATS_VERSION = 2;
+const STATS_VERSION = 3;
 const RETAIN_DAYS = 90;
 const MAX_CODES_PER_CATEGORY = 8;
+/** 统计键口径：mcp:<服务器名> / skill:<技能名>。只接受安全字符，避免任意字符串进文件。 */
+const STAT_KEY_RE = /^(mcp|skill):[A-Za-z0-9._-]{1,64}$/;
 const SAMPLE_MAX = 200;
 
 /** 错误分类是**给人看的**固定 6 类；原始 code 另外保存给排障用。 */
@@ -886,6 +888,8 @@ export function apply(ctx, config) {
   const counters = new Map(); /* key -> { ok, fail, lastAt, lastFailAt } */
   const days = new Map(); /* "YYYY-MM-DD" -> Map<key, { ok, fail }> */
   const errorStats = new Map(); /* key -> { CATEGORY: { count, lastAt, codes, sample } } */
+  /* 被用户手动隐藏的统计行：只影响展示，不动数据，所以随时可恢复 */
+  const hiddenKeys = new Set();
   let statsSince = null;
   let saveTimer = null;
   let translateStore = null;
@@ -996,6 +1000,34 @@ export function apply(ctx, config) {
     }
   }
 
+  const statsSnapshot = () => ({
+    version: STATS_VERSION,
+    since: statsSince,
+    counters: Object.fromEntries(counters),
+    days: Object.fromEntries([...days].map(([day, bucket]) => [day, Object.fromEntries(bucket)])),
+    errors: Object.fromEntries(errorStats),
+    hidden: [...hiddenKeys].sort(),
+  });
+
+  /**
+   * 立即落盘。隐藏/恢复这类用户动作必须马上生效：
+   * 落盘是「内存全量快照覆盖文件」，所以只改文件而不改内存，
+   * 下一次防抖保存会把改动覆盖回去（行会「删了又回来」）。
+   */
+  const persistStats = async () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    try {
+      pruneDays();
+      await ensureStateDir(profileDir);
+      await writeJsonFile(statsFile, statsSnapshot());
+    } catch {
+      /* 统计落盘失败不影响主流程 */
+    }
+  };
+
   const scheduleSave = () => {
     if (saveTimer) return;
     saveTimer = setTimeout(async () => {
@@ -1003,13 +1035,7 @@ export function apply(ctx, config) {
       try {
         pruneDays();
         await ensureStateDir(profileDir);
-        await writeJsonFile(statsFile, {
-          version: STATS_VERSION,
-          since: statsSince,
-          counters: Object.fromEntries(counters),
-          days: Object.fromEntries([...days].map(([day, bucket]) => [day, Object.fromEntries(bucket)])),
-          errors: Object.fromEntries(errorStats),
-        });
+        await writeJsonFile(statsFile, statsSnapshot());
       } catch {
         /* 统计落盘失败不影响主流程 */
       }
@@ -1021,7 +1047,10 @@ export function apply(ctx, config) {
       await ensureStateDir(profileDir);
       const saved = await readJsonFile(statsFile, null);
 
-      if (saved && saved.version === STATS_VERSION) {
+      const savedVersion = Number(saved?.version) || 0;
+      /* 从 v2 起文件结构一致（counters / days / errors），v3 只是多了 hidden。
+         这里不能写 === STATS_VERSION：升版本那天旧文件会被整体忽略，统计凭空清零。 */
+      if (saved && savedVersion >= 2) {
         for (const [key, value] of Object.entries(saved.counters ?? {})) {
           counters.set(key, {
             ok: Number(value?.ok) || 0,
@@ -1040,7 +1069,14 @@ export function apply(ctx, config) {
         for (const [key, bucket] of Object.entries(saved.errors ?? {})) {
           if (bucket && typeof bucket === "object") errorStats.set(key, bucket);
         }
+        if (Array.isArray(saved.hidden)) {
+          for (const key of saved.hidden) {
+            if (typeof key === "string" && STAT_KEY_RE.test(key)) hiddenKeys.add(key);
+          }
+        }
         if (typeof saved.since === "string") statsSince = saved.since;
+        /* 旧版本文件读进来后落一次盘，把 version 与 hidden 字段写正 */
+        if (savedVersion < STATS_VERSION) void persistStats();
       } else if (saved && Array.isArray(saved.rows)) {
         /* v1 迁移：老数据只有累计次数，没有成败与分类。归到 since 当天的一桶，
            失败数记为 0 —— 不编造历史。 */
@@ -1055,6 +1091,7 @@ export function apply(ctx, config) {
         }
         if (bucket.size) days.set(legacyDay, bucket);
         if (typeof saved.since === "string") statsSince = saved.since;
+        void persistStats();
       }
 
       if (statsSince === null) statsSince = new Date().toISOString();
@@ -1597,10 +1634,49 @@ export function apply(ctx, config) {
           return { ok: okSeries, fail: failSeries };
         };
 
-        const merged = [...rows.values()]
+        /* 已隐藏、但当前连计数都没有的键（数据过期，或服务器/技能早就没了）也要能
+           出现在「已隐藏」里——否则用户永远拿不回来。 */
+        for (const key of hiddenKeys) {
+          if (rows.has(key)) continue;
+          const kind = key.startsWith("mcp:") ? "mcp" : "skill";
+          rows.set(key, emptyRow(key, kind, key.slice(kind.length + 1)));
+        }
+
+        const everything = [...rows.values()]
           .map((row) => ({ ...row, series: seriesOf(row.key) }))
           .sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name)));
-        return json({ ok: true, since: statsSince, days: dayKeys, rows: merged });
+
+        return json({
+          ok: true,
+          since: statsSince,
+          days: dayKeys,
+          rows: everything.filter((row) => !hiddenKeys.has(row.key)),
+          hiddenRows: everything.filter((row) => hiddenKeys.has(row.key)),
+        });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  });
+
+  /**
+   * 从统计里隐藏 / 恢复一行。只改展示，不删数据，所以永远可以恢复。
+   * 必须先改内存再立即落盘：落盘是内存全量快照，只改文件会被下一次防抖保存覆盖回去。
+   */
+  ctx.connection.fetch.register({
+    path: "/api/service-manager/stats/hide",
+    methods: ["POST"],
+    requestBody: "buffered",
+    fetch: async (request) => {
+      try {
+        const body = await request.json();
+        const key = typeof body?.key === "string" ? body.key : "";
+        if (!STAT_KEY_RE.test(key)) throw new Error("统计键不合法");
+        const hide = body?.hidden !== false;
+        if (hide) hiddenKeys.add(key);
+        else hiddenKeys.delete(key);
+        await persistStats();
+        return json({ ok: true, key, hidden: hide, hiddenKeys: [...hiddenKeys].sort() });
       } catch (error) {
         return fail(error);
       }

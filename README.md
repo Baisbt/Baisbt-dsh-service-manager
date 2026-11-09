@@ -59,6 +59,8 @@ MCP failures are counted and classified too — network/timeout, authentication,
 
 A 14-day column chart sits above the tables, and every row carries its own sparkline plus a red segment showing the share that failed.
 
+When a row stops mattering — say a server you tried once and uninstalled — hover its end and click hide. It leaves the charts and tables without deleting anything, and a "n hidden" list at the bottom brings it back in one click.
+
 ### Agent tool
 
 The plugin also registers an `mcp_service` tool, so you can say *"install the filesystem MCP"* in a conversation instead of switching pages.

@@ -161,6 +161,7 @@
         since: days[0],
         days,
         rows: stats.map((row) => ({ ...row, series: seriesOf(row.count, row.fails ?? 0) })),
+        hiddenRows: new URLSearchParams(location.search).get("hidden") === "1" ? [{ key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: Date.now(), errors: {}, series: seriesOf(28, 10) }] : [],
       });
     }
     if (path === "/api/service-manager/version" && method === "GET") {
