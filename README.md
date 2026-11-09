@@ -4,7 +4,7 @@
 
 **One page for every MCP server and skill in DeepSeek Harness.**
 
-Add, edit, enable, disable and delete MCP servers without touching YAML · browse your skills · translate their English summaries with your own model · see what actually gets called.
+Add, edit, enable, disable and delete MCP servers without touching YAML · browse your skills · translate their English summaries with your own model.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.0--rc.1-6f42c1)](#compatibility)
@@ -12,8 +12,6 @@ Add, edit, enable, disable and delete MCP servers without touching YAML · brows
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 
 English · [简体中文](README.zh-CN.md)
-
-<img src="docs/screenshots/tour.gif" alt="Walking through the three tabs" width="760">
 
 </div>
 
@@ -28,7 +26,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 - [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install)
 - [Usage](#usage) · [What it writes](#what-it-writes) · [Security boundaries](#security-boundaries)
 - [How it works](#how-it-works) · [Compatibility](#compatibility) · [FAQ](#faq)
-- [Development](#development) · [Contributing](#contributing) · [License](#license)
+- [Development](#development) · [Changelog](#changelog) · [Contributing](#contributing) · [License](#license)
 
 ## Features
 
@@ -51,16 +49,6 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 - **Reveal in file manager** — the folder button next to the path in the drawer selects that `SKILL.md` for you
 
 > Translations only change what you read. `SKILL.md` is never modified — the model still receives the original English prompt.
-
-### Invocation stats
-
-Per-server and per-skill call counts, accumulated from the day you install. Answers "is this server earning its context?" without digging through session logs.
-
-MCP failures are counted and classified too — network/timeout, authentication, bad parameters, server error, cancelled, unknown. Select a server and the chart switches from "errors by server" to "errors by category", each with a one-line explanation plus the raw code and a sanitized sample.
-
-A 14-day column chart sits above the tables, and every row carries its own sparkline plus a red segment showing the share that failed.
-
-When a row stops mattering — say a server you tried once and uninstalled — hover its end and click hide. It leaves the charts and tables without deleting anything, and a "n hidden" list at the bottom brings it back in one click.
 
 ### Agent tool
 
@@ -124,10 +112,6 @@ Translated summary above, parameter table below.
 </tr>
 </table>
 
-**Invocation stats**
-
-![Stats](docs/screenshots/05-stats.png)
-
 ## Requirements
 
 - DeepSeek Harness `>= 0.2.0-rc.1 < 0.3.0`
@@ -158,8 +142,6 @@ Then **refresh the page** (`Ctrl+R`). A **服务管理** entry appears in the si
 
 **Skills** — summaries are English by default. Choose a model, hit **重新翻译全部**, and the cards fill in. The toggle switches the whole list between translation and original; ↻ on a card re-translates just that one.
 
-**Stats** — read-only counters, one row per server and per skill.
-
 **Opening the config directory** — the page has an entry that opens the profile folder in your file manager (`explorer.exe` / `open` / `xdg-open`). It opens the folder; the plugin does not edit files you own.
 
 ## What it writes
@@ -171,7 +153,6 @@ Everything the plugin owns lives in your profile directory. Nothing else is touc
 | `<profile>/mcp-servers.yml` | Generated MCP rows — the `cordis:include` target |
 | `<profile>/.dsh-service-manager/servers.json` | Source of truth for the server list |
 | `<profile>/.dsh-service-manager/translations.json` | Translation cache, keyed by a hash of the source text |
-| `<profile>/.dsh-service-manager/stats.json` | Invocation counters |
 | `<profile>/.dsh-service-manager/settings.json` | Your model choice |
 | `<profile>/.dsh-service-manager/diagnostics.json` | Health of the agent tool and the load-time probe |
 
@@ -258,14 +239,12 @@ No. Uninstalling removes the dependency entry, the bundle entry and the `node_mo
 No build step: `index.js` and `client.js` are plain ESM that runs directly.
 
 ```bash
-# Offline render smoke test — renders all three views and both drawers,
+# Offline render smoke test — renders both views and both drawers,
 # in Chinese and English, against a minimal React stand-in
 node test/render-smoke.mjs
 # Host smoke test — runs apply() against a minimal ctx and replays
 # "disk was updated after the process started"
 node test/host-smoke.mjs
-# Pure-function assertions for error classification
-node test/stats-classify.mjs
 ```
 
 Before releasing, stamp the build so both halves describe themselves:
@@ -286,6 +265,12 @@ node docs/preview/serve.mjs   # then open http://127.0.0.1:4173/docs/preview/
 The version notice has four states to look at: `?version=ok` (default, no notice), `?version=stale` (restart required), `?version=page` (stale page build), `?version=unknown` (package.json unreadable).
 
 That preview environment is also the fastest way to iterate on the UI without installing anything.
+
+## Changelog
+
+### 0.10.0
+
+- **Removed invocation stats.** The stats page and all of its collection code are gone, leaving two pages: MCP servers and skills. The old data file `<profile>/.dsh-service-manager/stats.json` is now an orphan and can be deleted by hand — the plugin no longer reads or writes it.
 
 ## Contributing
 

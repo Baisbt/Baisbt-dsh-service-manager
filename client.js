@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.9.1", commit: "9a89e62", built: "2026-11-09T03:06:23.002Z" };
+    const BUILD = { version: "0.10.0", commit: "f1313e7", built: "2026-11-09T06:52:35.577Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
         title: "服务管理",
         sub: "MCP 服务器与技能的统一入口。改动会直接写进配置，下次对话即可使用。",
         refresh: "刷新",
-        tabs: { mcp: "MCP 服务器", skill: "技能", stats: "调用统计" },
+        tabs: { mcp: "MCP 服务器", skill: "技能" },
         search: "搜索服务器…",
         add: "新增服务器",
         colName: "名称",
@@ -113,12 +113,6 @@ window.__ModuleLoader__.load({
         verRunning: "进程",
         verStarted: "启动于",
         verDismiss: "忽略",
-        hideStat: "从统计中隐藏",
-        hiddenTitle: "已隐藏 {n} 项",
-        hiddenHint: "只隐藏显示，数据仍在，可随时恢复",
-        restoreStat: "恢复",
-        kindMcp: "MCP",
-        kindSkill: "技能",
         showInFiles: "在文件管理器中显示",
         edit: "编辑",
         remove: "删除",
@@ -193,46 +187,6 @@ window.__ModuleLoader__.load({
         skillEmptyBody: "技能放在 ~/.agents/skills 或 ~/.dsh/skills 下，每个技能是一个含 SKILL.md 的目录。",
         skillHidden: "仅手动调用",
         skillScopeUser: "用户级",
-        statEmpty: "还没有调用记录",
-        statEmptyBody: "每调用一次 MCP 工具或技能，这里就会出现一条计数。统计从插件安装当天开始。",
-        mcpcalls: "MCP 工具调用",
-        skillcalls: "技能调用",
-        statSince: "统计自",
-        statSinceUnknown: "统计从插件安装当天开始累计",
-        statRule: "技能计数来自模型主动加载 SKILL 的次数；斜杠命令不经过工具，不计入。",
-        statUsed: "已用 {n} / {m}",
-        statNoServers: "还没有配置 MCP 服务器",
-        statNoSkills: "还没有发现技能",
-        errTitle: "MCP 调用错误",
-        errScopeAll: "全部服务器",
-        errClear: "清除筛选",
-        errNone: "还没有调用错误",
-        errNoneFor: "这台服务器还没有报过错",
-        errNoCalls: "没有调用记录，无法判断健康状态",
-        errTotal: "共 {n} 次",
-        errBadge: "错误 {n}",
-        errUnit: "次错误",
-        activityTitle: "近 14 天调用",
-        actMcp: "MCP",
-        actSkill: "技能",
-        actFail: "失败",
-        actEmpty: "近 14 天还没有调用",
-        err: {
-          NETWORK: "网络 / 超时",
-          AUTH: "鉴权失败",
-          PARAM: "参数错误",
-          SERVER: "服务端错误",
-          CANCELLED: "调用被取消",
-          UNKNOWN: "未知",
-        },
-        errWhy: {
-          NETWORK: "连不上或响应太慢：DNS 解析失败、连接被拒绝、读超时",
-          AUTH: "密钥无效或过期，或这个 key 没有该接口的权限",
-          PARAM: "模型给的参数不符合工具入参结构，请求没发出去就被拦下",
-          SERVER: "服务器收到请求但自己出错：崩溃、过载、上游不可用",
-          CANCELLED: "你中断了这一轮，或超时策略主动掐断",
-          UNKNOWN: "无法归类，展开可见原始错误码与样本",
-        },
         openFile: "打开配置文件",
         openFolder: "打开配置目录",
         externalNote: "由用户手工维护，本页仅展示",
@@ -244,7 +198,7 @@ window.__ModuleLoader__.load({
         title: "Services",
         sub: "One place for MCP servers and skills. Changes go straight into the config and are available in the next turn.",
         refresh: "Refresh",
-        tabs: { mcp: "MCP servers", skill: "Skills", stats: "Usage" },
+        tabs: { mcp: "MCP servers", skill: "Skills" },
         search: "Search servers…",
         add: "Add server",
         colName: "Name",
@@ -274,12 +228,6 @@ window.__ModuleLoader__.load({
         verRunning: "process",
         verStarted: "started",
         verDismiss: "Dismiss",
-        hideStat: "Hide from stats",
-        hiddenTitle: "{n} hidden",
-        hiddenHint: "Display only — the data stays and can be restored anytime",
-        restoreStat: "Restore",
-        kindMcp: "MCP",
-        kindSkill: "Skill",
         showInFiles: "Show in file manager",
         edit: "Edit",
         remove: "Remove",
@@ -354,46 +302,6 @@ window.__ModuleLoader__.load({
         skillEmptyBody: "Skills live in ~/.agents/skills or ~/.dsh/skills as folders containing SKILL.md.",
         skillHidden: "Manual only",
         skillScopeUser: "User",
-        statEmpty: "No calls recorded yet",
-        statEmptyBody: "Every MCP tool call and skill invocation shows up here. Counting starts the day the plugin was installed.",
-        mcpcalls: "MCP tool calls",
-        skillcalls: "Skill invocations",
-        statSince: "Counting since",
-        statSinceUnknown: "Counting starts the day the plugin was installed",
-        statRule: "Skill counts come from model-initiated SKILL loads. Slash commands bypass the tool and are not counted.",
-        statUsed: "{n} of {m} used",
-        statNoServers: "No MCP servers configured",
-        statNoSkills: "No skills found",
-        errTitle: "MCP call errors",
-        errScopeAll: "All servers",
-        errClear: "Clear filter",
-        errNone: "No call errors yet",
-        errNoneFor: "This server has not failed yet",
-        errNoCalls: "No calls recorded, so health is unknown",
-        errTotal: "{n} total",
-        errBadge: "{n} errors",
-        errUnit: "errors",
-        activityTitle: "Calls, last 14 days",
-        actMcp: "MCP",
-        actSkill: "Skills",
-        actFail: "Failed",
-        actEmpty: "No calls in the last 14 days",
-        err: {
-          NETWORK: "Network / timeout",
-          AUTH: "Authentication",
-          PARAM: "Bad parameters",
-          SERVER: "Server error",
-          CANCELLED: "Cancelled",
-          UNKNOWN: "Unknown",
-        },
-        errWhy: {
-          NETWORK: "Cannot reach it or it is too slow: DNS failure, connection refused, read timeout",
-          AUTH: "The key is invalid or expired, or it lacks permission for this endpoint",
-          PARAM: "The model's arguments did not match the tool schema, so the call never left",
-          SERVER: "The server received the call and failed: crash, overload, upstream unavailable",
-          CANCELLED: "You interrupted the turn, or a timeout policy aborted it",
-          UNKNOWN: "Not classifiable; expand to see the raw code and sample",
-        },
         openFile: "Open config file",
         openFolder: "Open config folder",
         externalNote: "Maintained by hand; read-only here",
@@ -443,7 +351,6 @@ window.__ModuleLoader__.load({
 
     /* 每次调用都按当前语言取，所以任何一次重渲染都会用上新语言 */
     const t = (key) => tFor(readLocale())(key);
-    const dateLocale = () => (String(readLocale()).toLowerCase().startsWith("zh") ? "zh-CN" : "en-US");
 
     const subscribeLocale = (onChange) => {
       try {
@@ -523,52 +430,6 @@ window.__ModuleLoader__.load({
         h("path", { key: "a", d: "M9.6 2.6a3.2 3.2 0 0 0-3.9 4.2l-3 3a1.2 1.2 0 0 0 0 1.7l.9.9a1.2 1.2 0 0 0 1.7 0l3-3a3.2 3.2 0 0 0 4.2-3.9l-2 2-1.5-.5-.5-1.5z", stroke: "currentColor", strokeWidth: 1.3, strokeLinejoin: "round" }),
       ]);
 
-    /* 错误分类图标：同一 stroke、同一 currentColor，与页面其它图标一致 */
-    const IconNetOff = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M2.6 6.4a9.5 9.5 0 0 1 10.8 0", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-        h("path", { key: "b", d: "M5 9.4a5.6 5.6 0 0 1 6 0", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-        h("path", { key: "c", d: "M8 12.3h.01", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" }),
-        h("path", { key: "d", d: "M2.8 2.8 13.2 13.2", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-      ]);
-    const IconKey = (p) =>
-      svg(p, [
-        h("circle", { key: "a", cx: 5, cy: 8, r: 2.3, stroke: "currentColor", strokeWidth: 1.4 }),
-        h("path", { key: "b", d: "M7.3 8H13", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-        h("path", { key: "c", d: "M11 8v2.1M13 8v1.6", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-      ]);
-    const IconParam = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "m6 4.6-3.4 3.4L6 11.4", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }),
-        h("path", { key: "b", d: "m10 4.6 3.4 3.4L10 11.4", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round" }),
-      ]);
-    const IconStop = (p) =>
-      svg(p, [
-        h("rect", { key: "a", x: 4, y: 4, width: 8, height: 8, rx: 1.6, stroke: "currentColor", strokeWidth: 1.4 }),
-      ]);
-    /* 「从统计隐藏」：一只被划掉的眼睛 */
-    const IconEyeOff = (p) =>
-      svg(p, [
-        h("path", { key: "a", d: "M2.4 8s2.2-3.3 5.6-3.3c1 0 1.9.3 2.7.7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
-        h("path", { key: "b", d: "M13.6 8s-2.2 3.3-5.6 3.3c-1 0-1.9-.3-2.7-.7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
-        h("circle", { key: "c", cx: 8, cy: 8, r: 1.9, stroke: "currentColor", strokeWidth: 1.3 }),
-        h("path", { key: "d", d: "M3 13 13 3", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" }),
-      ]);
-    const IconAlert = (p) =>
-      svg(p, [
-        h("circle", { key: "a", cx: 8, cy: 8, r: 5.4, stroke: "currentColor", strokeWidth: 1.4 }),
-        h("path", { key: "b", d: "M8 4.9v3.6", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
-        h("path", { key: "c", d: "M8 10.9h.01", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" }),
-      ]);
-
-    const ERROR_ICON = {
-      NETWORK: IconNetOff,
-      AUTH: IconKey,
-      PARAM: IconParam,
-      SERVER: IconServer,
-      CANCELLED: IconStop,
-      UNKNOWN: IconAlert,
-    };
     const SidebarGlyph = () =>
       h(
         "span",
@@ -618,9 +479,6 @@ window.__ModuleLoader__.load({
 .smBtnGhost{border-color:transparent;background:transparent;color:var(--dsw-alias-label-tertiary)}
 .smBtnGhost:hover{color:var(--dsw-alias-label-primary)}
 .smBtn:disabled{opacity:.5;cursor:default}
-.smSection{display:flex;flex-direction:column;gap:10px}
-.smSectionHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.smSectionTitle{margin:0;font-size:14px;font-weight:500;line-height:22px;color:var(--dsw-alias-label-secondary)}
 .smTable{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}
 .smTHead{display:grid;grid-template-columns:minmax(150px,1.1fr) minmax(180px,1.7fr) 100px 48px 112px;gap:16px;
   padding:8px 10px 8px 32px;font-size:11px;line-height:14px;letter-spacing:.02em;color:var(--dsw-alias-label-caption);box-sizing:border-box}
@@ -769,94 +627,6 @@ window.__ModuleLoader__.load({
   line-height:14px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .smLinkBtn:hover{color:var(--dsw-alias-label-primary)}
 .smLinkBtn:disabled{color:var(--dsw-alias-label-dimmed);cursor:default;text-decoration:none}
-.smBars{display:flex;flex-direction:column;gap:14px}
-.smBar{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px 48px;align-items:center;gap:14px}
-.smBarName{font-size:13px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.smBarTrack{height:6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-active);overflow:hidden}
-.smBarFill{display:block;position:relative;height:100%;border-radius:999px;background:var(--dsw-alias-state-business-primary);transition:width .3s cubic-bezier(.2,.8,.2,1);overflow:hidden}
-.smBarFail{position:absolute;top:0;bottom:0;right:0;background:var(--dsw-alias-state-error-primary)}
-.smBarValue{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);text-align:right;font-variant-numeric:tabular-nums;
-  font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
-.smStatsMeta{display:flex;flex-direction:column;gap:3px;margin-top:-4px}
-.smStatsSince{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
-.smStatsRule{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);max-width:72ch}
-.smSectionMeta{font-size:11px;line-height:14px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
-.smBar[data-idle=true] .smBarName{color:var(--dsw-alias-label-tertiary)}
-.smBar[data-idle=true] .smBarValue{color:var(--dsw-alias-label-caption)}
-.smSpark{width:56px;height:18px;flex:0 0 auto;display:block}
-.smSparkOk{fill:var(--dsw-alias-state-business-primary);opacity:.6}
-.smSparkFail{fill:var(--dsw-alias-state-error-primary)}
-.smSparkEmpty{fill:var(--dsw-alias-label-dimmed);opacity:.45}
-/* 行尾动作：平时不出现，hover / 键盘聚焦才显形——统计页不该变成一排按钮 */
-.smRowAction{display:inline-flex;align-items:center;justify-content:center;width:100%;height:20px;padding:0 4px;border:0;
-  border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:16px;
-  cursor:pointer;opacity:0;transition:opacity .12s ease,background .12s ease,color .12s ease}
-.smBar:hover .smRowAction,.smBar:focus-within .smRowAction{opacity:1}
-.smRowAction:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.smRowAction:focus-visible{opacity:1;outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
-/* 「已隐藏」里的恢复按钮常显，且用链接色提示这是可撤销动作 */
-.smRowActionText{opacity:1;color:var(--dsw-alias-link)}
-.smBarHidden .smBarName{color:var(--dsw-alias-label-tertiary)}
-.smBarHidden .smBarFill{background:var(--dsw-alias-label-dimmed);opacity:.55}
-.smKindTag{margin-left:6px;padding:0 4px;border-radius:3px;font-size:10px;line-height:14px;color:var(--dsw-alias-label-caption);
-  background:var(--dsw-alias-interactive-bg-hover)}
-.smHiddenSection{margin-top:8px;padding-top:16px;border-top:1px solid var(--dsw-alias-border-l2)}
-.smAct{display:flex;flex-direction:column;gap:10px;padding:6px 0 2px}
-.smActChart{width:100%;max-width:420px;height:56px;display:block}
-.smActMcp{fill:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-state-business-primary)}
-.smActSkill{fill:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-state-success-primary)}
-.smActFail{fill:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-state-error-primary)}
-.smActLegend{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.smActKey{display:inline-flex;align-items:center;gap:6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
-.smActDot{display:inline-block;width:8px;height:8px;border-radius:2px}
-.smSectionTools{display:flex;align-items:center;gap:8px}
-.smChip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border-radius:6px;
-  border:1px solid var(--dsw-alias-border-l3);background:transparent;color:var(--dsw-alias-label-secondary);
-  font:inherit;font-size:12px;line-height:18px;cursor:pointer;transition:color .12s ease,border-color .12s ease}
-.smChip:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l4)}
-.smErrList{display:flex;flex-direction:column;gap:10px}
-/* 错误行必须和统计行共用同一套列宽：名字列 180、数值列 52、末两列 56/48（错误行留空）。
-   两套模板各写各的，就会出现「错误条比统计条长一截、起点还偏右」——量过：起点差 120px、终点差 66px。 */
-.smErrRow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 52px 56px 48px;align-items:center;gap:14px;width:100%;
-  padding:4px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
-.smErrRowBtn{cursor:pointer;border-radius:var(--dsw-radius-sm,8px);padding:5px 8px;margin:0 -8px;width:calc(100% + 16px);
-  transition:background .12s ease}
-.smErrRowBtn:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.smErrRowBtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
-.smErrName{display:flex;flex-direction:column;gap:1px;min-width:0}
-.smErrNameText{font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.smErrWhy{font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-caption)}
-.smErrMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
-.smErrTag{display:inline-flex;align-items:center;height:16px;padding:0 5px;margin-left:6px;border-radius:3px;
-  font-size:11px;line-height:16px;vertical-align:1px;color:var(--dsw-alias-state-error-primary);
-  background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}
-.smDonutWrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:6px 0 2px}
-.smDonut{width:132px;height:132px;flex:0 0 auto}
-.smDonutTrack{fill:none;stroke:var(--dsw-alias-interactive-bg-hover);stroke-width:14}
-.smDonutSeg{fill:none;stroke-width:14;transition:stroke-dasharray .3s cubic-bezier(.2,.8,.2,1)}
-.smDonutSeg[data-cat=NETWORK]{stroke:var(--dsw-alias-state-warn-primary)}
-.smDonutSeg[data-cat=AUTH]{stroke:var(--dsw-alias-state-error-primary)}
-.smDonutSeg[data-cat=PARAM]{stroke:var(--dsw-alias-state-business-primary)}
-.smDonutSeg[data-cat=SERVER]{stroke:color-mix(in srgb, var(--dsw-alias-state-error-primary) 52%, var(--dsw-alias-bg-base))}
-.smDonutSeg[data-cat=CANCELLED]{stroke:var(--dsw-alias-label-caption)}
-.smDonutSeg[data-cat=UNKNOWN]{stroke:var(--dsw-alias-label-dimmed)}
-.smDonutTotal{fill:var(--dsw-alias-label-primary);font-size:26px;font-weight:500;font-family:var(--dsw-font-family)}
-.smDonutCaption{fill:var(--dsw-alias-label-caption);font-size:9px;letter-spacing:.04em}
-.smErrLegend{display:flex;flex-direction:column;gap:10px;flex:1 1 260px;min-width:0}
-.smErrLegendRow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start}
-.smErrLegendIcon{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;
-  background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
-.smErrLegendIcon[data-cat=NETWORK]{color:var(--dsw-alias-state-warn-primary)}
-.smErrLegendIcon[data-cat=AUTH]{color:var(--dsw-alias-state-error-primary)}
-.smErrLegendIcon[data-cat=PARAM]{color:var(--dsw-alias-state-business-primary)}
-.smErrLegendMain{display:flex;flex-direction:column;gap:1px;min-width:0}
-.smErrLegendTitle{font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary)}
-.smErrLegendWhy{font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-caption)}
-.smErrLegendValue{font-size:12px;line-height:20px;color:var(--dsw-alias-label-primary);text-align:right;
-  font-variant-numeric:tabular-nums;font-family:"SF Mono","JetBrains Mono",Consolas,monospace}
-.smErrLegendPct{margin-left:6px;font-size:11px;color:var(--dsw-alias-label-caption)}
-@media (max-width:720px){.smDonutWrap{gap:14px}.smDonut{width:104px;height:104px}}
 .smMenuWrap{position:relative}
 .smMenu{position:absolute;top:calc(100% + 6px);right:0;min-width:196px;z-index:40;padding:4px;border-radius:var(--dsw-radius-md,12px);
   background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l4);box-shadow:var(--dsw-elevation-prominent);
@@ -940,12 +710,6 @@ window.__ModuleLoader__.load({
   .smRow{grid-template-columns:1fr auto;grid-template-areas:"name actions" "endpoint endpoint" "status tools";row-gap:8px;align-items:start}
   .smRowChevron{top:14px;margin-top:0}
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
-  .smBar{grid-template-columns:1fr 56px 48px;grid-template-areas:"name value action" "track track track";row-gap:6px}
-  .smBarName{grid-area:name}.smBarTrack{grid-area:track}.smBarValue{grid-area:value}
-  .smRowAction{grid-area:action;opacity:1}
-  .smSpark{display:none}
-  .smErrRow{grid-template-columns:1fr 56px 48px;grid-template-areas:"name value action" "track track track";row-gap:6px}
-  .smErrName{grid-area:name}
 }
 `;
 
@@ -2561,436 +2325,6 @@ window.__ModuleLoader__.load({
           : null
       );
     }
-    function StatsView({ t, state, reload, notify }) {
-      const [selected, setSelected] = useState(null);
-      const rows = state.stats ?? [];
-      /* 隐藏只影响展示：这些行不参与图表与「已用 n/m」，但要单独列出来，否则无法恢复 */
-      const hiddenRows = state.statsHidden ?? [];
-
-      if (state.loading && !state.stats) {
-        return h("div", { className: "smSkeleton", style: { height: 120, borderRadius: 12 } });
-      }
-      if (!rows.length && !hiddenRows.length) {
-        return h(
-          "div",
-          { className: "smEmpty" },
-          h("div", { className: "smEmptyIcon" }, h(IconRefresh, { size: 20 })),
-          h("h3", { className: "smEmptyTitle" }, t("statEmpty")),
-          h("p", { className: "smEmptyBody" }, t("statEmptyBody"))
-        );
-      }
-
-      const keyOf = (row) => `${row.kind}:${row.name}`;
-
-      /* 隐藏 / 恢复：Host 只改展示不动数据，点错了能一键恢复 */
-      const setHidden = async (key, hidden) => {
-        try {
-          await request("/api/service-manager/stats/hide", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ key, hidden }),
-          });
-          await reload?.();
-        } catch (err) {
-          notify?.(err.message);
-        }
-      };
-      const max = Math.max(...rows.map((row) => row.count), 1);
-      const servers = rows.filter((row) => row.kind === "mcp");
-      const skills = rows.filter((row) => row.kind === "skill");
-      const failTotal = rows.reduce((sum, row) => sum + (row.fails ?? 0), 0);
-      const activeRow = selected ? servers.find((row) => keyOf(row) === selected) ?? null : null;
-
-      const since = state.statsSince
-        ? new Date(state.statsSince).toLocaleDateString(dateLocale(), {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-          })
-        : null;
-
-      /* 迷你柱：稀疏计数用柱不用折线——0 值必须有视觉落点。
-         全行共用一个刻度，横向才可比。 */
-      const sparkMax = Math.max(
-        1,
-        ...rows.flatMap((row) => {
-          const ok = row.series?.ok ?? [];
-          const fail = row.series?.fail ?? [];
-          return ok.map((value, index) => value + (fail[index] ?? 0));
-        })
-      );
-
-      const spark = (row, key) => {
-        const ok = row.series?.ok ?? [];
-        if (!ok.length) return null;
-        const fail = row.series?.fail ?? [];
-        const W = 56;
-        const H = 18;
-        const step = W / ok.length;
-        const barW = Math.max(2, step - 1.2);
-        return h(
-          "svg",
-          { key, viewBox: `0 0 ${W} ${H}`, className: "smSpark", "aria-hidden": "true" },
-          ok.map((value, index) => {
-            const failed = fail[index] ?? 0;
-            const total = value + failed;
-            if (!total) {
-              return h("rect", { key: index, x: index * step, y: H - 1.5, width: barW, height: 1.5, className: "smSparkEmpty" });
-            }
-            const totalH = Math.max(2, (total / sparkMax) * H);
-            const failH = (failed / total) * totalH;
-            const okH = totalH - failH;
-            return h(
-              "g",
-              { key: index },
-              okH > 0 ? h("rect", { x: index * step, y: H - okH, width: barW, height: okH, className: "smSparkOk" }) : null,
-              failH > 0
-                ? h("rect", { x: index * step, y: H - totalH, width: barW, height: failH, className: "smSparkFail" })
-                : null
-            );
-          })
-        );
-      };
-
-      /* 0 次的行也要在：没有这一行，用户无法区分「没被用过」和「不支持统计」 */
-      const bar = (row) =>
-        h(
-          "div",
-          { key: keyOf(row), className: "smBar", "data-idle": row.count === 0 },
-          h(
-            "span",
-            { className: "smBarName", title: row.name },
-            row.name,
-            row.fails ? h("span", { className: "smErrTag" }, t("errBadge").replace("{n}", String(row.fails))) : null
-          ),
-          h(
-            "span",
-            { className: "smBarTrack" },
-            h(
-              "span",
-              { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } },
-              row.fails ? h("span", { className: "smBarFail", style: { width: `${(row.fails / row.count) * 100}%` } }) : null
-            )
-          ),
-          h("span", { className: "smBarValue" }, String(row.count)),
-          spark(row, `spark-${keyOf(row)}`),
-          h(
-            "button",
-            {
-              type: "button",
-              className: "smRowAction",
-              title: t("hideStat"),
-              "aria-label": `${t("hideStat")}：${row.name}`,
-              onClick: () => setHidden(row.key ?? keyOf(row), true),
-            },
-            h(IconEyeOff, { size: 14 })
-          )
-        );
-
-      const section = (title, list, emptyText) => {
-        const used = list.filter((row) => row.count > 0).length;
-        return h(
-          "section",
-          { className: "smSection" },
-          h(
-            "div",
-            { className: "smSectionHead" },
-            h("h3", { className: "smSectionTitle" }, title),
-            list.length ? h("span", { className: "smSectionMeta" }, t("statUsed").replace("{n}", String(used)).replace("{m}", String(list.length))) : null
-          ),
-          list.length ? h("div", { className: "smBars" }, list.map(bar)) : h("div", { className: "smHint" }, emptyText)
-        );
-      };
-
-      /* 未选中按服务器汇总，选中后换成这台服务器的错误分类。
-         同一张图换维度，所以区块右边必须写明当前看的是什么，并给出清除入口。 */
-      const failing = servers
-        .filter((row) => (row.fails ?? 0) > 0)
-        .sort((a, b) => (b.fails ?? 0) - (a.fails ?? 0) || a.name.localeCompare(b.name));
-      const failMax = Math.max(...failing.map((row) => row.fails ?? 0), 1);
-
-      const serverFailRow = (row) =>
-        h(
-          "button",
-          {
-            key: keyOf(row),
-            type: "button",
-            className: "smErrRow smErrRowBtn",
-            onClick: () => setSelected(keyOf(row)),
-            "aria-label": `${row.name} — ${t("errBadge").replace("{n}", String(row.fails ?? 0))}`,
-          },
-          h("span", { className: "smErrName" }, h("span", { className: "smErrNameText" }, row.name)),
-          h(
-            "span",
-            { className: "smBarTrack" },
-            h("span", { className: "smBarFill", style: { width: `${((row.fails ?? 0) / failMax) * 100}%` } })
-          ),
-          h("span", { className: "smBarValue" }, String(row.fails ?? 0))
-        );
-
-      const categories = activeRow
-        ? Object.entries(activeRow.errors ?? {})
-            .map(([category, value]) => ({
-              category,
-              count: Number(value?.count) || 0,
-              lastAt: Number(value?.lastAt) || 0,
-              codes: value?.codes ?? {},
-              sample: String(value?.sample ?? ""),
-            }))
-            .sort((a, b) => b.count - a.count)
-        : [];
-
-      /* 选中一台服务器后，错误分类是「部分与整体」关系，环形图比条形更能说明占比；
-         图例保留数量、百分比和原因解释——颜色不是唯一编码。 */
-      const errorDonut = (items) => {
-        const total = items.reduce((sum, item) => sum + item.count, 0);
-        const radius = 38;
-        const circumference = 2 * Math.PI * radius;
-        let offset = 0;
-        return h(
-          "div",
-          { className: "smDonutWrap" },
-          h(
-            "svg",
-            {
-              viewBox: "0 0 100 100",
-              className: "smDonut",
-              role: "img",
-              "aria-label": `${t("errTitle")} ${total}`,
-            },
-            h("circle", { cx: 50, cy: 50, r: radius, className: "smDonutTrack" }),
-            items.map((item) => {
-              const dash = (item.count / total) * circumference;
-              const node = h("circle", {
-                key: item.category,
-                cx: 50,
-                cy: 50,
-                r: radius,
-                className: "smDonutSeg",
-                "data-cat": item.category,
-                strokeDasharray: `${dash} ${circumference - dash}`,
-                strokeDashoffset: -offset,
-                transform: "rotate(-90 50 50)",
-              });
-              offset += dash;
-              return node;
-            }),
-            h("text", { x: 50, y: 48, className: "smDonutTotal", textAnchor: "middle" }, String(total)),
-            h("text", { x: 50, y: 62, className: "smDonutCaption", textAnchor: "middle" }, t("errUnit"))
-          ),
-          h(
-            "div",
-            { className: "smErrLegend" },
-            items.map((item) => {
-              const Icon = ERROR_ICON[item.category] ?? IconAlert;
-              const codes = Object.entries(item.codes ?? {})
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 2)
-                .map(([code, times]) => (times > 1 ? `${code} ×${times}` : code))
-                .join(" · ");
-              const pct = total ? Math.round((item.count / total) * 100) : 0;
-              return h(
-                "div",
-                { key: item.category, className: "smErrLegendRow" },
-                h("span", { className: "smErrLegendIcon", "data-cat": item.category }, h(Icon, { size: 14 })),
-                h(
-                  "span",
-                  { className: "smErrLegendMain" },
-                  h("span", { className: "smErrLegendTitle" }, t(`err.${item.category}`)),
-                  h("span", { className: "smErrLegendWhy" }, t(`errWhy.${item.category}`)),
-                  codes ? h("span", { className: "smErrMeta", title: item.sample }, codes) : null
-                ),
-                h(
-                  "span",
-                  { className: "smErrLegendValue" },
-                  String(item.count),
-                  h("span", { className: "smErrLegendPct" }, `${pct}%`)
-                )
-              );
-            })
-          )
-        );
-      };
-
-      /* 零调用 ≠ 零错误：连不上的服务器根本不会产生 tools/result，
-         这里必须说「无法判断」，不能显示成健康。 */
-      const errorBody = activeRow
-        ? activeRow.count === 0
-          ? h("div", { className: "smHint" }, t("errNoCalls"))
-          : categories.length
-            ? errorDonut(categories)
-            : h("div", { className: "smHint" }, activeRow.fails ? t("errNone") : t("errNoneFor"))
-        : failing.length
-          ? h("div", { className: "smErrList" }, failing.map(serverFailRow))
-          : h("div", { className: "smHint" }, t("errNone"));
-
-      const errorSection = h(
-        "section",
-        { className: "smSection" },
-        h(
-          "div",
-          { className: "smSectionHead" },
-          h("h3", { className: "smSectionTitle" }, t("errTitle")),
-          h(
-            "div",
-            { className: "smSectionTools" },
-            activeRow
-              ? h(
-                  "button",
-                  { type: "button", className: "smChip", onClick: () => setSelected(null), title: t("errClear") },
-                  h("span", null, activeRow.name),
-                  h(IconClose, { size: 11 })
-                )
-              : h("span", { className: "smSectionMeta" }, t("errScopeAll")),
-            failTotal ? h("span", { className: "smSectionMeta" }, t("errTotal").replace("{n}", String(failTotal))) : null
-          )
-        ),
-        errorBody
-      );
-
-      /* 顶部趋势：按天的调用量，成功按来源堆叠、失败盖在最上面 */
-      const dayKeys = state.statsDays ?? [];
-      let activitySection = null;
-      if (dayKeys.length) {
-        const buckets = { mcp: [], skill: [], fail: [] };
-        for (let index = 0; index < dayKeys.length; index += 1) {
-          buckets.mcp.push(0);
-          buckets.skill.push(0);
-          buckets.fail.push(0);
-        }
-        for (const row of rows) {
-          const ok = row.series?.ok ?? [];
-          const fail = row.series?.fail ?? [];
-          for (let index = 0; index < dayKeys.length; index += 1) {
-            const value = ok[index] ?? 0;
-            if (row.kind === "mcp") buckets.mcp[index] += value;
-            else buckets.skill[index] += value;
-            buckets.fail[index] += fail[index] ?? 0;
-          }
-        }
-        const totals = dayKeys.map((_, index) => buckets.mcp[index] + buckets.skill[index] + buckets.fail[index]);
-        const peak = Math.max(...totals, 1);
-        const anyCall = totals.some((value) => value > 0);
-        const W = 196;
-        const H = 56;
-        const step = W / dayKeys.length;
-        const barW = Math.max(3, step - 4);
-        const shortDate = (key) => String(key).slice(5).replace("-", "/");
-
-        activitySection = h(
-          "section",
-          { className: "smSection" },
-          h(
-            "div",
-            { className: "smSectionHead" },
-            h("h3", { className: "smSectionTitle" }, t("activityTitle")),
-            h(
-              "span",
-              { className: "smSectionMeta" },
-              `${shortDate(dayKeys[0])} – ${shortDate(dayKeys[dayKeys.length - 1])}`
-            )
-          ),
-          anyCall
-            ? h(
-                "div",
-                { className: "smAct" },
-                h(
-                  "svg",
-                  { viewBox: `0 0 ${W} ${H}`, className: "smActChart", role: "img", "aria-label": t("activityTitle") },
-                  dayKeys.map((day, index) => {
-                    let cursor = H;
-                    const segs = [];
-                    const add = (value, className, suffix) => {
-                      if (!value) return;
-                      const height = Math.max(1, (value / peak) * H);
-                      cursor -= height;
-                      segs.push(
-                        h("rect", { key: `${day}-${suffix}`, x: index * step, y: cursor, width: barW, height, className })
-                      );
-                    };
-                    add(buckets.mcp[index], "smActMcp", "mcp");
-                    add(buckets.skill[index], "smActSkill", "skill");
-                    add(buckets.fail[index], "smActFail", "fail");
-                    return h("g", { key: day }, segs);
-                  })
-                ),
-                h(
-                  "div",
-                  { className: "smActLegend" },
-                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActMcp" }), t("actMcp")),
-                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActSkill" }), t("actSkill")),
-                  h("span", { className: "smActKey" }, h("i", { className: "smActDot smActFail" }), t("actFail"))
-                )
-              )
-            : h("div", { className: "smHint" }, t("actEmpty"))
-        );
-      }
-
-      /* 已隐藏只是一张清单：不画条形、不参与刻度，只回答「我藏了谁、怎么拿回来」 */
-      const hiddenSection = hiddenRows.length
-        ? h(
-            "section",
-            { className: "smSection smHiddenSection" },
-            h(
-              "div",
-              { className: "smSectionHead" },
-              h("h3", { className: "smSectionTitle" }, t("hiddenTitle").replace("{n}", String(hiddenRows.length))),
-              h("span", { className: "smSectionMeta" }, t("hiddenHint"))
-            ),
-            h(
-              "div",
-              { className: "smBars" },
-              hiddenRows.map((row) =>
-                h(
-                  "div",
-                  { key: `hidden-${row.key}`, className: "smBar smBarHidden", "data-idle": true },
-                  h(
-                    "span",
-                    { className: "smBarName", title: row.name },
-                    row.name,
-                    h("span", { className: "smKindTag" }, row.kind === "mcp" ? t("kindMcp") : t("kindSkill"))
-                  ),
-                  h(
-                    "span",
-                    { className: "smBarTrack" },
-                    h("span", { className: "smBarFill", style: { width: `${(row.count / max) * 100}%` } })
-                  ),
-                  h("span", { className: "smBarValue" }, String(row.count)),
-                  h("span", { className: "smSpark", "aria-hidden": "true" }),
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: "smRowAction smRowActionText",
-                      title: t("restoreStat"),
-                      "aria-label": `${t("restoreStat")}：${row.name}`,
-                      onClick: () => setHidden(row.key, false),
-                    },
-                    t("restoreStat")
-                  )
-                )
-              )
-            )
-          )
-        : null;
-
-      return h(
-        React.Fragment,
-        null,
-        h(
-          "div",
-          { className: "smStatsMeta" },
-          h("span", { className: "smStatsSince" }, since ? `${t("statSince")} ${since}` : t("statSinceUnknown")),
-          h("span", { className: "smStatsRule" }, t("statRule"))
-        ),
-        rows.length ? activitySection : null,
-        rows.length ? section(t("mcpcalls"), servers, t("statNoServers")) : null,
-        rows.length ? section(t("skillcalls"), skills, t("statNoSkills")) : null,
-        rows.length ? errorSection : null,
-        hiddenSection
-      );
-    }
-
     function Page({ t, tab, setTab, state, reload, notify }) {
       const [menuOpen, setMenuOpen] = useState(false);
       const [verHidden, setVerHidden] = useState(false);
@@ -3168,7 +2502,7 @@ window.__ModuleLoader__.load({
             h(
               "div",
               { className: "smTabs", role: "tablist" },
-              ["mcp", "skill", "stats"].map((key) =>
+              ["mcp", "skill"].map((key) =>
                 h(
                   "button",
                   {
@@ -3193,8 +2527,7 @@ window.__ModuleLoader__.load({
                 )
               : null,
             tab === "mcp" ? h(McpView, { t, state, reload, notify }) : null,
-            tab === "skill" ? h(SkillView, { t, state, reload, notify }) : null,
-            tab === "stats" ? h(StatsView, { t, state, reload, notify }) : null
+            tab === "skill" ? h(SkillView, { t, state, reload, notify }) : null
           )
         )
       );
@@ -3230,10 +2563,9 @@ window.__ModuleLoader__.load({
           error: "",
           servers: null,
           skills: null,
-          stats: null,
-          statsHidden: null,
           version: null,
-        };        const listeners = new Set();
+        };
+        const listeners = new Set();
         const emit = () => listeners.forEach((fn) => fn());
         const set = (patch) => {
           store = { ...store, ...patch };
@@ -3258,22 +2590,13 @@ window.__ModuleLoader__.load({
           set({ loading: true, error: "" });
           void loadVersion();
           try {
-            if (scope === "mcp" || scope === "all") {
+            if (scope === "mcp") {
               const payload = await request("/api/service-manager/mcp");
               set({ servers: payload.servers ?? [] });
             }
-            if (scope === "skill" || scope === "all") {
+            if (scope === "skill") {
               const payload = await request("/api/service-manager/skills");
               set({ skills: payload.skills ?? [] });
-            }
-            if (scope === "stats" || scope === "all") {
-              const payload = await request("/api/service-manager/stats");
-              set({
-                stats: payload.rows ?? [],
-                statsSince: payload.since ?? null,
-                statsDays: payload.days ?? [],
-                statsHidden: payload.hiddenRows ?? [],
-              });
             }
           } catch (error) {
             set({ error: error.message });
@@ -3293,10 +2616,10 @@ window.__ModuleLoader__.load({
             return () => listeners.delete(fn);
           }, []);
           useEffect(() => {
-            load(tab === "mcp" ? "mcp" : tab === "skill" ? "skill" : "stats");
+            load(tab);
           }, [tab]);
           const reload = useCallback(() => {
-            load(tab === "mcp" ? "mcp" : tab === "skill" ? "skill" : "stats");
+            load(tab);
           }, [tab]);
           const notify = useCallback((message) => set({ error: message }), []);
           return h(Page, { t, tab, setTab, state: snapshot, reload, notify });

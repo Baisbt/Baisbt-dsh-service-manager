@@ -1,14 +1,15 @@
 /**
  * Host 半区冒烟：用最小 ctx 替身真跑 apply()，再直接调用路由处理函数。
  *
- * 覆盖三件事，全部在「重启 DSH」之前就能知道答案：
+ * 覆盖这几件事，全部在「重启 DSH」之前就能知道答案：
  *  1. apply() 不抛错、路由注册齐全且无重复、各路由能正常应答；
  *  2. 进程启动后磁盘被换成新版 → /version 必须报 stale（这正是历史故障的形状）；
- *  3. package.json 读不到 → /version 报 unknown，而不是瞎猜。
+ *  3. package.json 读不到 → /version 报 unknown，而不是瞎猜；
+ *  4. /open 只接受扫描到的技能名，不接任意路径。
  *
  * 用 node test/host-smoke.mjs 运行。
  */
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -76,7 +77,7 @@ async function boot(dir, profile) {
 
   if (booted) {
     const { routes, listeners, duplicates, call } = booted;
-    check("注入了 tools/result 监听", listeners.has("tools/result"));
+    check("不再监听 tools/result（统计已随 0.10.0 移除）", !listeners.has("tools/result"));
     check("没有重复注册的路由", duplicates.length === 0, duplicates.join(","));
 
     const expected = [
@@ -85,7 +86,6 @@ async function boot(dir, profile) {
       "/api/service-manager/mcp/delete",
       "/api/service-manager/mcp/toggle",
       "/api/service-manager/skills",
-      "/api/service-manager/stats",
       "/api/service-manager/models",
       "/api/service-manager/skills/translate",
       "/api/service-manager/skills/content",
@@ -93,7 +93,6 @@ async function boot(dir, profile) {
       "/api/service-manager/open",
       "/api/service-manager/paths",
       "/api/service-manager/version",
-      "/api/service-manager/stats/hide",
     ];
     const missing = expected.filter((route) => !routes.has(route));
     check(`${expected.length} 条路由全部注册`, missing.length === 0, missing.join(","));
@@ -116,9 +115,12 @@ async function boot(dir, profile) {
     const mcp = await call("/api/service-manager/mcp");
     check("/mcp 返回空列表", Array.isArray(mcp.servers) && mcp.servers.length === 0);
 
-    const stats = await call("/api/service-manager/stats");
-    check("/stats 返回 14 天窗口", Array.isArray(stats.days) && stats.days.length === 14, String(stats.days?.length));
-    check("/stats 有 rows 数组", Array.isArray(stats.rows));
+    /* 统计被移除后不该再写 stats.json；老文件留在磁盘上由用户自己处理，Host 不碰它 */
+    const statsFileWritten = await readFile(path.join(profile, ".dsh-service-manager", "stats.json"), "utf8").then(
+      () => true,
+      () => false
+    );
+    check("不再生成 stats.json", statsFileWritten === false);
   }
 }
 
@@ -157,89 +159,6 @@ async function boot(dir, profile) {
   check("此时不报 stale（没有依据就不下结论）", version.stale === false);
   check("仍然报出进程版本", version.running?.version === pkg.version, version.running?.version);
   check("磁盘读数置空", version.disk === null);
-}
-
-/* ------------------------- 4. 隐藏 / 恢复：只改展示、不动数据、不被防抖保存覆盖 */
-
-{
-  const profile = await temp("sm-profile-");
-  const { listeners, call } = await boot(ROOT, profile);
-
-  const emit = listeners.get("tools/result");
-  check("tools/result 监听可触发", typeof emit === "function");
-  emit?.({ name: "mcp__box__run" }, { isError: true, error: { message: "Request timed out" } });
-  emit?.({ name: "mcp__box__run" }, { isError: false });
-
-  const before = await call("/api/service-manager/stats");
-  check("计数后 rows 含 mcp:box", before.rows.some((row) => row.key === "mcp:box"));
-
-  const post = (body) =>
-    call("/api/service-manager/stats/hide", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-  const hide = await post({ key: "mcp:box" });
-  check("隐藏返回 ok", hide.ok === true && hide.hidden === true);
-  const afterHide = await call("/api/service-manager/stats");
-  check("隐藏后 rows 不再含 mcp:box", !afterHide.rows.some((row) => row.key === "mcp:box"));
-  check("隐藏后 hiddenRows 含 mcp:box", afterHide.hiddenRows.some((row) => row.key === "mcp:box"));
-
-  /* 关键回归：隐藏之后再发生一次调用会重新排一次防抖保存，隐藏状态不能被覆盖 */
-  emit?.({ name: "mcp__box__run" }, { isError: false });
-  await new Promise((resolve) => setTimeout(resolve, 2600));
-  const afterTimer = await call("/api/service-manager/stats");
-  check("隐藏后再有调用，2.6 秒后仍然隐藏", !afterTimer.rows.some((row) => row.key === "mcp:box"));
-
-  const file = JSON.parse(await readFile(path.join(profile, ".dsh-service-manager", "stats.json"), "utf8"));
-  check("文件 version = 3", file.version === 3, String(file.version));
-  check("文件记下了 hidden", Array.isArray(file.hidden) && file.hidden.includes("mcp:box"));
-  check("隐藏不删数据，counters 仍保留", Boolean(file.counters?.["mcp:box"]));
-
-  /* 幽灵键：没有任何计数也能隐藏、能列出来、能恢复，且恢复不会凭空造行 */
-  const ghost = await post({ key: "skill:ghost-skill" });
-  check("幽灵键可以隐藏", ghost.ok === true);
-  const withGhost = await call("/api/service-manager/stats");
-  check("幽灵键出现在 hiddenRows", withGhost.hiddenRows.some((row) => row.key === "skill:ghost-skill"));
-
-  await post({ key: "skill:ghost-skill", hidden: false });
-  const afterGhostRestore = await call("/api/service-manager/stats");
-  check("恢复后幽灵键从 hiddenRows 消失", !afterGhostRestore.hiddenRows.some((row) => row.key === "skill:ghost-skill"));
-  check("恢复不会凭空造出计数行", !afterGhostRestore.rows.some((row) => row.key === "skill:ghost-skill"));
-
-  await post({ key: "mcp:box", hidden: false });
-  const restored = await call("/api/service-manager/stats");
-  const boxRow = restored.rows.find((row) => row.key === "mcp:box");
-  check("恢复后 mcp:box 回到 rows", Boolean(boxRow));
-  check("隐藏期间的调用没有丢（计数累计到 3）", (boxRow?.count ?? 0) === 3, String(boxRow?.count));
-
-  const bad = await post({ key: "../../etc/passwd" });
-  check("非法键被拒绝", bad.ok === false);
-}
-
-/* ------------------------------------- 5. v2 → v3 迁移：旧文件不能丢数据 */
-
-{
-  const profile = await temp("sm-profile-");
-  await mkdir(path.join(profile, ".dsh-service-manager"), { recursive: true });
-  await writeFile(
-    path.join(profile, ".dsh-service-manager", "stats.json"),
-    JSON.stringify({
-      version: 2,
-      since: "2026-11-01T00:00:00.000Z",
-      counters: { "mcp:legacy": { ok: 3, fail: 1, lastAt: 1, lastFailAt: 1 } },
-      days: {},
-      errors: {},
-    }),
-    "utf8"
-  );
-  const { call } = await boot(ROOT, profile);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  const stats = await call("/api/service-manager/stats");
-  check("v2 文件的计数被读进来（没被版本号挡住）", stats.rows.some((row) => row.key === "mcp:legacy"), `${stats.rows.length} 行`);
-  const file = JSON.parse(await readFile(path.join(profile, ".dsh-service-manager", "stats.json"), "utf8"));
-  check("v2 文件升到 v3 且带上 hidden", file.version === 3 && Array.isArray(file.hidden), String(file.version));
 }
 
 /* ------------------------------ 6. /open：只接受「扫描到的技能名」，不接任意路径 */
@@ -287,7 +206,7 @@ for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
 let failures = 0;
 for (const [label, ok, detail] of checks) {
   if (!ok) failures += 1;
-  if (!ok || /apply|stale|unknown|路由|13 条/.test(label)) {
+  if (!ok || /apply|stale|unknown|路由|stats/.test(label)) {
     console.log(`${ok ? "✔" : "✘"} ${label}${!ok && detail ? ` — ${detail}` : ""}`);
   }
 }

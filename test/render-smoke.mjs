@@ -1,5 +1,5 @@
 /**
- * 离线渲染校验：用最小 React 替身在 Node 里跑一遍 Client，确认三页 + 抽屉都能构建出树。
+ * 离线渲染校验：用最小 React 替身在 Node 里跑一遍 Client，确认两页 + 抽屉都能构建出树。
  * 只做结构校验，不涉及样式与交互。用 node test/render-smoke.mjs 运行。
  */
 import { readFile } from "node:fs/promises";
@@ -20,7 +20,6 @@ let entriesUsed = false;
 let activeSkillOverride = null;
 let expandServerId = null;
 let openToolOverride = null;
-let selectStatsKey = null;
 let nullSeen = 0;
 
 const useState = (initial) => {
@@ -34,7 +33,6 @@ const useState = (initial) => {
     if (activeSkillOverride && forceTab === "skill" && nullSeen === 2) return [activeSkillOverride, noop];
     if (expandServerId && forceTab === "mcp" && nullSeen === 4) return [expandServerId, noop];
     if (openToolOverride && forceTab === "mcp" && nullSeen === 5) return [openToolOverride, noop];
-    if (selectStatsKey && forceTab === "stats" && nullSeen === 1) return [selectStatsKey, noop];
     return [null, noop];
   }
   if (
@@ -157,6 +155,14 @@ function hasAriaLabel(tree, label) {
   return found;
 }
 
+function countRole(tree, role) {
+  let count = 0;
+  walk(tree, (node) => {
+    if (node?.props && node.props.role === role) count += 1;
+  });
+  return count;
+}
+
 const tools = [
   {
     name: "tavily_search",
@@ -184,7 +190,7 @@ const servers = [
   { id: "mcp-github", serverName: "github", transport: "stdio", endpoint: "npx", cwd: "D:/work", status: "disabled", enabled: true, managed: true, toolCount: null, tools: [] },
 ];
 
-store = { loading: false, error: "", servers, skills, stats: [], statsSince: "2026-11-06" };
+store = { loading: false, error: "", servers, skills };
 
 const skillEntries = {
   "C:/s/banner/SKILL.md": { zh: "为社交媒体和广告设计横幅。", engine: "model", model: "agent2api/ds" },
@@ -196,72 +202,6 @@ const toolEntries = {
   "mcp-tavily:tavily_search": { zh: "在网络上搜索并返回排序结果。", engine: "model", model: "agent2api/ds" },
   "mcp-tavily:tavily_search#query": { zh: "搜索关键词", engine: "model", model: "agent2api/ds" },
 };
-
-/* 统计页：0 次的行必须也在，否则用户分不清「没被用过」和「不支持统计」 */
-const statsDays = Array.from({ length: 14 }, (_, i) => {
-  const d = new Date(2026, 10, 7);
-  d.setDate(d.getDate() - (13 - i));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-});
-const zeros = () => new Array(14).fill(0);
-const at = (index, value) => {
-  const list = zeros();
-  list[index] = value;
-  return list;
-};
-
-const statsRows = [
-  {
-    key: "mcp:tavily",
-    kind: "mcp",
-    name: "tavily",
-    ok: 14,
-    fails: 1,
-    count: 15,
-    lastAt: 0,
-    lastFailAt: 0,
-    errors: { NETWORK: { count: 1, lastAt: 0, codes: { ENOTFOUND: 1 }, sample: "fetch failed: getaddrinfo ENOTFOUND" } },
-    series: { ok: at(12, 14), fail: at(13, 1) },
-  },
-  {
-    key: "mcp:github",
-    kind: "mcp",
-    name: "github",
-    ok: 0,
-    fails: 0,
-    count: 0,
-    lastAt: 0,
-    lastFailAt: 0,
-    errors: {},
-    series: { ok: zeros(), fail: zeros() },
-  },
-  {
-    key: "skill:banner-design",
-    kind: "skill",
-    name: "banner-design",
-    ok: 3,
-    fails: 0,
-    count: 3,
-    lastAt: 0,
-    lastFailAt: 0,
-    errors: {},
-    series: { ok: at(12, 3), fail: zeros() },
-  },
-  {
-    key: "skill:brand",
-    kind: "skill",
-    name: "brand",
-    ok: 0,
-    fails: 0,
-    count: 0,
-    lastAt: 0,
-    lastFailAt: 0,
-    errors: {},
-    series: { ok: zeros(), fail: zeros() },
-  },
-];
-
-store = { ...store, statsDays };
 
 const cases = [
   { label: "skill (无译文)", tab: "skill" },
@@ -277,73 +217,13 @@ const cases = [
     entries: toolEntries,
     openTool: { server: servers[0], tool: tools[0] },
   },
-  { label: "stats", tab: "stats" },
-  {
-    label: "stats (含 0 计数)",
-    tab: "stats",
-    stats: statsRows,
-    expectTexts: ["MCP 工具调用", "技能调用", "banner-design", "brand", "已用 1 / 2"],
-  },
-  {
-    label: "stats (近 14 天趋势柱 + 行内迷你柱)",
-    tab: "stats",
-    stats: statsRows,
-    expectTexts: ["近 14 天调用", "失败"],
-    expectClass: ["smActChart", "smSpark"],
-  },
-  {
-    label: "stats (错误：未选中按服务器)",
-    tab: "stats",
-    stats: statsRows,
-    expectTexts: ["MCP 调用错误", "全部服务器", "共 1 次"],
-  },
-  {
-    label: "stats (错误：选中 tavily 显示分类)",
-    tab: "stats",
-    stats: statsRows,
-    selectStats: "mcp:tavily",
-    expectTexts: ["网络 / 超时", "DNS 解析失败", "ENOTFOUND"],
-    expectClass: "smDonut",
-  },
-  {
-    label: "stats (错误：零调用不可判健康)",
-    tab: "stats",
-    stats: statsRows,
-    selectStats: "mcp:github",
-    expectTexts: ["没有调用记录"],
-  },
+  /* 0.10.0 移除了调用统计页：只剩两个 tab，且统计文案不该再出现 */
+  { label: "只剩两个 tab（统计页已移除）", tab: "mcp", tabs: 2, rejectTexts: ["调用统计", "近 14 天调用"] },
   /* 语言：client.js 在 apply 时就把语言定下来，所以中英文各 apply 一次 */
   { label: "zh 页面副标题", tab: "mcp", locale: "zh", expectText: "MCP 服务器与技能的统一入口" },
-  { label: "en 页面副标题", tab: "mcp", locale: "en", expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
+  { label: "en 页面副标题", tab: "mcp", locale: "en", tabs: 2, expectText: "One place for MCP servers and skills", rejectText: "统一入口" },
   { label: "zh 抽屉关闭标签", tab: "skill", locale: "zh", drawer: skills[0], expectAria: "关闭" },
   { label: "en 抽屉关闭标签", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Close" },
-  { label: "en 统计页", tab: "stats", locale: "en", expectText: "No calls recorded yet" },
-  {
-    label: "stats (行尾隐藏按钮)",
-    tab: "stats",
-    stats: statsRows,
-    expectClass: "smRowAction",
-  },
-  {
-    label: "stats (已隐藏清单)",
-    tab: "stats",
-    stats: statsRows,
-    statsHidden: [
-      { key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: 0, errors: {}, series: { ok: [], fail: [] } },
-    ],
-    expectTexts: ["已隐藏 1 项", "box", "恢复"],
-    expectClass: "smHiddenSection",
-  },
-  {
-    label: "stats (全部隐藏后仍能看到清单)",
-    tab: "stats",
-    stats: [],
-    statsHidden: [
-      { key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: 0, errors: {}, series: { ok: [], fail: [] } },
-    ],
-    expectTexts: ["已隐藏 1 项"],
-    rejectText: "还没有调用记录",
-  },
   /* 版本自述：三种读数（磁盘 / 进程 / 页面）决定横幅 */
   {
     label: "版本横幅：进程落后于磁盘 → 提示重启",
@@ -406,26 +286,10 @@ const cases = [
 
 let failures = 0;
 
-/* 版式契约：统计行与错误行必须共用同一套列宽。
-   各写各的模板时，错误条会比统计条长一截、起点还偏右（0.8.1 修过一次）。 */
-{
-  const columnsOf = (selector) =>
-    new RegExp(selector + "\\{display:grid;grid-template-columns:([^;]+);").exec(source)?.[1] ?? null;
-  const bar = columnsOf("\\.smBar");
-  const err = columnsOf("\\.smErrRow");
-  const ok = Boolean(bar && err && bar === err);
-  if (!ok) failures += 1;
-  console.log(
-    `${ok ? "✔" : "✘"} 版式契约：.smBar 与 .smErrRow 列宽一致（${bar ?? "未找到"} / ${err ?? "未找到"}）`
-  );
-}
-
 for (const item of cases) {
   boot(item.locale ?? "zh");
   store = {
     ...store,
-    stats: item.stats ?? [],
-    statsHidden: item.statsHidden ?? null,
     version: item.version ?? null,
   };
   forceTab = item.tab;
@@ -434,7 +298,6 @@ for (const item of cases) {
   activeSkillOverride = item.drawer ?? null;
   expandServerId = item.expand ?? null;
   openToolOverride = item.openTool ?? null;
-  selectStatsKey = item.selectStats ?? null;
   nullSeen = 0;
   try {
     const tree = render(mainComponent({}));
@@ -474,6 +337,8 @@ for (const item of cases) {
     if (item.expectText) checks.push([`含「${item.expectText}」`, text.includes(item.expectText)]);
     if (item.rejectText) checks.push([`不含「${item.rejectText}」`, !text.includes(item.rejectText)]);
     if (item.expectAria) checks.push([`aria=${item.expectAria}`, hasAriaLabel(tree, item.expectAria)]);
+    if (item.rejectTexts) for (const value of item.rejectTexts) checks.push([`不含「${value}」`, !text.includes(value)]);
+    if (item.tabs) checks.push([`tab 数=${item.tabs}`, countRole(tree, "tab") === item.tabs]);
     for (const name of [].concat(item.expectClass ?? [])) checks.push([`含节点 ${name}`, countClass(tree, name) > 0]);
     for (const name of [].concat(item.rejectClass ?? [])) checks.push([`不含节点 ${name}`, countClass(tree, name) === 0]);
     const failed = checks.filter(([, ok]) => !ok);

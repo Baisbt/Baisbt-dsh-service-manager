@@ -55,29 +55,6 @@
 
   const skills = F.skills;
 
-  /* 名字长短混着来：短名（slides）和长名（update-cursor-settings）会让
-     「每行一个独立网格」的列宽各自漂移，正好用来量对齐 */
-  const stats = [
-    { key: "mcp:tavily", name: "tavily", kind: "mcp", count: 126, fails: 2, lastAt: Date.now() },
-    { key: "mcp:github", name: "github", kind: "mcp", count: 0, fails: 0, lastAt: null },
-    { key: "skill:impeccable", name: "impeccable", kind: "skill", count: 88, fails: 0, lastAt: Date.now() },
-    { key: "skill:ui-ux-pro-max", name: "ui-ux-pro-max", kind: "skill", count: 54, fails: 0, lastAt: Date.now() },
-    { key: "skill:office-docx", name: "office-docx", kind: "skill", count: 23, fails: 0, lastAt: Date.now() },
-    { key: "skill:update-cursor-settings", name: "update-cursor-settings", kind: "skill", count: 9, fails: 0, lastAt: Date.now() },
-    { key: "skill:slides", name: "slides", kind: "skill", count: 3, fails: 0, lastAt: Date.now() },
-  ];
-
-  /* 最近 14 天窗口：和 Host 的 /stats 一致，供顶部趋势柱和行内迷你柱使用 */
-  const days = Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(Date.now() - (13 - index) * 86400000);
-    const pad = (value) => String(value).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  });
-  const seriesOf = (count, fails) => ({
-    ok: Array.from({ length: 14 }, (_, index) => (index === 13 ? Math.max(0, count - fails) : 0)),
-    fail: Array.from({ length: 14 }, (_, index) => (index === 13 ? fails : 0)),
-  });
-
   const providers = [
     {
       id: "agent2api",
@@ -128,14 +105,14 @@
     stale: scenario === "stale",
     unknown: scenario === "unknown",
     running: {
-      version: scenario === "stale" ? "0.7.0" : "0.8.0",
+      version: scenario === "stale" ? "0.9.1" : "0.10.0",
       startedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString(),
       pid: 4321,
       node: "24.19.0",
     },
-    disk: scenario === "unknown" ? null : { version: "0.8.0", mtime: new Date().toISOString() },
+    disk: scenario === "unknown" ? null : { version: "0.10.0", mtime: new Date().toISOString() },
     /* page 场景：故意给一个和 client.js 构建戳不同的 commit */
-    build: { version: "0.8.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
+    build: { version: "0.10.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
     dir: "C:/profile/node_modules/dsh-service-manager",
     profileDir: "C:/profile",
   };
@@ -154,15 +131,6 @@
     }
     if (path === "/api/service-manager/skills" && method === "GET") {
       return json({ ok: true, skills });
-    }
-    if (path === "/api/service-manager/stats" && method === "GET") {
-      return json({
-        ok: true,
-        since: days[0],
-        days,
-        rows: stats.map((row) => ({ ...row, series: seriesOf(row.count, row.fails ?? 0) })),
-        hiddenRows: new URLSearchParams(location.search).get("hidden") === "1" ? [{ key: "mcp:box", kind: "mcp", name: "box", ok: 18, fails: 10, count: 28, lastAt: Date.now(), errors: {}, series: seriesOf(28, 10) }] : [],
-      });
     }
     if (path === "/api/service-manager/version" && method === "GET") {
       /* missing 场景：模拟「正在跑的 Host 还没有这条路由」，返回 404 */

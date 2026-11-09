@@ -5,7 +5,6 @@
  *  - 读写我们自己独占的文件 <profileDir>/mcp-servers.yml（JSON 文本，合法 YAML）
  *  - 通过 cordis:include 让 DSH 加载它，改完调 entry.subtree.refresh()
  *  - 给 Client 提供 /api/service-manager/* 精确路由（自动鉴权）
- *  - 统计工具调用次数（内存，v1 不落盘）
  */
 import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -35,7 +34,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.9.1", commit: "9a89e62", built: "2026-11-09T03:06:23.002Z" };
+const BUILD = { version: "0.10.0", commit: "f1313e7", built: "2026-11-09T06:52:35.577Z" };
 
 function readSelfVersion() {
   try {
@@ -788,97 +787,6 @@ async function machineTranslate(texts) {
   return out.map((value) => (typeof value === "string" ? value : null));
 }
 
-/* ------------------------------------------------------------------ 统计 */
-
-const STATS_VERSION = 3;
-const RETAIN_DAYS = 90;
-const MAX_CODES_PER_CATEGORY = 8;
-/** 统计键口径：mcp:<服务器名> / skill:<技能名>。只接受安全字符，避免任意字符串进文件。 */
-const STAT_KEY_RE = /^(mcp|skill):[A-Za-z0-9._-]{1,64}$/;
-const SAMPLE_MAX = 200;
-
-/** 错误分类是**给人看的**固定 6 类；原始 code 另外保存给排障用。 */
-const ERROR_CATEGORIES = ["NETWORK", "AUTH", "PARAM", "SERVER", "CANCELLED", "UNKNOWN"];
-
-/** 本地日（不是 UTC）：UTC 会在 +08:00 的早上 8 点切天，图表会错位。 */
-function dayKey(date = new Date()) {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
-/**
- * 把宿主的 (code, message) 归到 6 类里。
- * 顺序有讲究：先鉴权再参数——"invalid token" 两个正则都能命中，归鉴权才对。
- */
-function classifyError(result) {
-  const info = result?.error?.info ?? {};
-  const code = String(info.code ?? info.name ?? "").toLowerCase();
-  const message = String(result?.error?.message ?? "").toLowerCase();
-  const text = `${code} ${message}`;
-
-  if (
-    /^e(notfound|conn|timedout|reset|ai_again|netunreach|hostunreach|pipe)/.test(code) ||
-    /timeout|timed out|fetch failed|network|socket|econn|dns|enotfound|etimedout|unreachable|offline/.test(text)
-  ) {
-    return "NETWORK";
-  }
-  if (/\b(401|403)\b|unauthor|forbidden|authentic|api[-_ ]?key|invalid[ _-]?token|expired/.test(text)) {
-    return "AUTH";
-  }
-  if (/invalid|validation|bad[-_]request|schema|missing|unexpected|not[-_]?found|unknown[-_]?tool/.test(text)) {
-    return "PARAM";
-  }
-  if (/\b5\d\d\b|server[-_]error|internal[-_]error|upstream|overload|unavailable/.test(text)) {
-    return "SERVER";
-  }
-  if (/abort|cancel|interrupt|sigint|sigterm/.test(text)) {
-    return "CANCELLED";
-  }
-  return "UNKNOWN";
-}
-
-/**
- * 错误原文落盘前必须脱敏：MCP 的地址里常带 API key（tavily 就是 ?tavilyApiKey=…），
- * 一条 fetch 错误就可能把密钥写进 stats.json。
- */
-function sanitizeSample(text) {
-  let value = String(text ?? "");
-  value = value.replace(/\?\S*/g, "?…");
-  value = value.replace(/\b(tvly|sk|pk|ghp|gho|ghs|xox[abprs])[-_][A-Za-z0-9_-]{4,}/gi, "$1-***");
-  value = value.replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer ***");
-  value = value.replace(/[A-Za-z0-9_-]{32,}/g, "***");
-  value = value.replace(/\s+/g, " ").trim();
-  return value.slice(0, SAMPLE_MAX);
-}
-
-/** 最近 N 天的本地日键，从旧到新——趋势图与每行的迷你柱都用这个顺序。 */
-function recentDayKeys(count = 14) {
-  const out = [];
-  const now = new Date();
-  for (let back = count - 1; back >= 0; back -= 1) {
-    out.push(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - back)));
-  }
-  return out;
-}
-
-/**
- * 原始错误码。优先取宿主的 info.code；MCP 服务端抛的校验错误常常没有 info，
- * 就从文案里捞（pydantic 的 `type=int_parsing`、Node 的 `ECONNREFUSED`）。
- */
-function pickErrorCode(result) {
-  const info = result?.error?.info ?? {};
-  const direct = String(info.code ?? info.name ?? "").trim();
-  if (direct) return direct.slice(0, 40);
-
-  const message = String(result?.error?.message ?? "");
-  const typed = /type=([A-Za-z0-9_]+)/.exec(message);
-  if (typed) return typed[1].slice(0, 40);
-  const errno = /\b(E[A-Z][A-Z0-9_]{2,})\b/.exec(message);
-  if (errno) return errno[1].slice(0, 40);
-  return "unknown";
-}
-
 /* ------------------------------------------------------------------ 插件 */
 
 export function apply(ctx, config) {
@@ -886,17 +794,9 @@ export function apply(ctx, config) {
   const dataFile = path.join(profileDir, "mcp-servers.yml");
   const stateDir = path.join(profileDir, STATE_DIRNAME);
   const modelFile = path.join(stateDir, MODEL_FILE);
-  const statsFile = path.join(stateDir, "stats.json");
   const translateFile = path.join(stateDir, "translations.json");
   const settingsFile = path.join(stateDir, "settings.json");
   const diagnosticsFile = path.join(stateDir, "diagnostics.json");
-  const counters = new Map(); /* key -> { ok, fail, lastAt, lastFailAt } */
-  const days = new Map(); /* "YYYY-MM-DD" -> Map<key, { ok, fail }> */
-  const errorStats = new Map(); /* key -> { CATEGORY: { count, lastAt, codes, sample } } */
-  /* 被用户手动隐藏的统计行：只影响展示，不动数据，所以随时可恢复 */
-  const hiddenKeys = new Set();
-  let statsSince = null;
-  let saveTimer = null;
   let translateStore = null;
   let settingsCache = null;
   /* diagnostics.json 是同一进程里多处写的，串行化避免读取-修改-写入互相覆盖 */
@@ -945,165 +845,6 @@ export function apply(ctx, config) {
     await writeJsonFile(settingsFile, settingsCache);
     return settingsCache;
   }
-
-  /* ---- 统计：内存 → 磁盘（v2：按天分桶 + 成功失败 + 错误分类） ---- */
-
-  function bumpCounter(key, ok) {
-    const entry = counters.get(key) ?? { ok: 0, fail: 0, lastAt: 0, lastFailAt: 0 };
-    if (ok) entry.ok += 1;
-    else {
-      entry.fail += 1;
-      entry.lastFailAt = Date.now();
-    }
-    entry.lastAt = Date.now();
-    counters.set(key, entry);
-
-    const day = dayKey();
-    let bucket = days.get(day);
-    if (!bucket) {
-      bucket = new Map();
-      days.set(day, bucket);
-    }
-    const slot = bucket.get(key) ?? { ok: 0, fail: 0 };
-    if (ok) slot.ok += 1;
-    else slot.fail += 1;
-    bucket.set(key, slot);
-  }
-
-  function recordError(key, result) {
-    const category = classifyError(result);
-    let bucket = errorStats.get(key);
-    if (!bucket) {
-      bucket = {};
-      errorStats.set(key, bucket);
-    }
-    let entry = bucket[category];
-    if (!entry) {
-      entry = { count: 0, lastAt: 0, codes: {}, sample: "" };
-      bucket[category] = entry;
-    }
-    entry.count += 1;
-    entry.lastAt = Date.now();
-
-    const code = pickErrorCode(result);
-    entry.codes[code] = (entry.codes[code] ?? 0) + 1;
-    if (Object.keys(entry.codes).length > MAX_CODES_PER_CATEGORY) {
-      entry.codes = Object.fromEntries(
-        Object.entries(entry.codes)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_CODES_PER_CATEGORY)
-      );
-    }
-    if (!entry.sample) entry.sample = sanitizeSample(result?.error?.message);
-  }
-
-  function pruneDays() {
-    const keys = [...days.keys()].sort();
-    while (keys.length > RETAIN_DAYS) {
-      const oldest = keys.shift();
-      days.delete(oldest);
-    }
-  }
-
-  const statsSnapshot = () => ({
-    version: STATS_VERSION,
-    since: statsSince,
-    counters: Object.fromEntries(counters),
-    days: Object.fromEntries([...days].map(([day, bucket]) => [day, Object.fromEntries(bucket)])),
-    errors: Object.fromEntries(errorStats),
-    hidden: [...hiddenKeys].sort(),
-  });
-
-  /**
-   * 立即落盘。隐藏/恢复这类用户动作必须马上生效：
-   * 落盘是「内存全量快照覆盖文件」，所以只改文件而不改内存，
-   * 下一次防抖保存会把改动覆盖回去（行会「删了又回来」）。
-   */
-  const persistStats = async () => {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-    }
-    try {
-      pruneDays();
-      await ensureStateDir(profileDir);
-      await writeJsonFile(statsFile, statsSnapshot());
-    } catch {
-      /* 统计落盘失败不影响主流程 */
-    }
-  };
-
-  const scheduleSave = () => {
-    if (saveTimer) return;
-    saveTimer = setTimeout(async () => {
-      saveTimer = null;
-      try {
-        pruneDays();
-        await ensureStateDir(profileDir);
-        await writeJsonFile(statsFile, statsSnapshot());
-      } catch {
-        /* 统计落盘失败不影响主流程 */
-      }
-    }, 2000);
-  };
-
-  void (async () => {
-    try {
-      await ensureStateDir(profileDir);
-      const saved = await readJsonFile(statsFile, null);
-
-      const savedVersion = Number(saved?.version) || 0;
-      /* 从 v2 起文件结构一致（counters / days / errors），v3 只是多了 hidden。
-         这里不能写 === STATS_VERSION：升版本那天旧文件会被整体忽略，统计凭空清零。 */
-      if (saved && savedVersion >= 2) {
-        for (const [key, value] of Object.entries(saved.counters ?? {})) {
-          counters.set(key, {
-            ok: Number(value?.ok) || 0,
-            fail: Number(value?.fail) || 0,
-            lastAt: Number(value?.lastAt) || 0,
-            lastFailAt: Number(value?.lastFailAt) || 0,
-          });
-        }
-        for (const [day, bucket] of Object.entries(saved.days ?? {})) {
-          const map = new Map();
-          for (const [key, value] of Object.entries(bucket ?? {})) {
-            map.set(key, { ok: Number(value?.ok) || 0, fail: Number(value?.fail) || 0 });
-          }
-          days.set(day, map);
-        }
-        for (const [key, bucket] of Object.entries(saved.errors ?? {})) {
-          if (bucket && typeof bucket === "object") errorStats.set(key, bucket);
-        }
-        if (Array.isArray(saved.hidden)) {
-          for (const key of saved.hidden) {
-            if (typeof key === "string" && STAT_KEY_RE.test(key)) hiddenKeys.add(key);
-          }
-        }
-        if (typeof saved.since === "string") statsSince = saved.since;
-        /* 旧版本文件读进来后落一次盘，把 version 与 hidden 字段写正 */
-        if (savedVersion < STATS_VERSION) void persistStats();
-      } else if (saved && Array.isArray(saved.rows)) {
-        /* v1 迁移：老数据只有累计次数，没有成败与分类。归到 since 当天的一桶，
-           失败数记为 0 —— 不编造历史。 */
-        const legacyDay = dayKey(saved.since ? new Date(saved.since) : new Date());
-        const bucket = new Map();
-        for (const row of saved.rows) {
-          if (typeof row?.key !== "string") continue;
-          const total = Number(row.count) || 0;
-          const lastAt = Number(row.lastAt) || 0;
-          counters.set(row.key, { ok: total, fail: 0, lastAt, lastFailAt: 0 });
-          bucket.set(row.key, { ok: total, fail: 0 });
-        }
-        if (bucket.size) days.set(legacyDay, bucket);
-        if (typeof saved.since === "string") statsSince = saved.since;
-        void persistStats();
-      }
-
-      if (statsSince === null) statsSince = new Date().toISOString();
-    } catch {
-      /* 首次运行没有统计文件，正常 */
-    }
-  })();
 
   const log = (level, message, detail) => {
     const fn = ctx.logger?.[level] ?? console[level === "error" ? "error" : "log"];
@@ -1214,35 +955,6 @@ export function apply(ctx, config) {
       };
     }, 0);
   }
-
-  /* 计数：只观察，不影响执行。口径是 MCP 按服务器聚合（mcp:<serverName>）、技能按技能名聚合（skill:<name>），
-     不按工具拆分——README 与 PRODUCT.md 的措辞以此为准。
-     第二个参数 result 带成败：isError 由宿主判定，是官方认可的失败信号。 */
-  ctx.on("tools/result", (exec, result) => {
-    try {
-      const toolName = exec?.name;
-      if (typeof toolName !== "string") return;
-      let key = null;
-      if (toolName.startsWith("mcp__")) {
-        const rest = toolName.slice(5);
-        const cut = rest.indexOf("__");
-        if (cut > 0) key = `mcp:${rest.slice(0, cut)}`;
-      } else if (toolName === "skill") {
-        const skillName = exec?.arguments?.name;
-        if (typeof skillName === "string") key = `skill:${skillName}`;
-      }
-      if (!key) return;
-
-      const failed = Boolean(result?.isError);
-      bumpCounter(key, !failed);
-      if (failed) recordError(key, result);
-
-      if (statsSince === null) statsSince = new Date().toISOString();
-      scheduleSave();
-    } catch {
-      /* 统计失败绝不影响工具执行 */
-    }
-  });
 
   const json = (value, status = 200) =>
     new Response(JSON.stringify(value), {
@@ -1575,120 +1287,6 @@ export function apply(ctx, config) {
   });
 
   ctx.connection.fetch.register({
-    path: "/api/service-manager/stats",
-    methods: ["GET"],
-    requestBody: "buffered",
-    fetch: async () => {
-      try {
-        const rows = new Map();
-        for (const [key, value] of counters.entries()) {
-          const [kind, ...rest] = key.split(":");
-          rows.set(key, {
-            key,
-            kind,
-            name: rest.join(":"),
-            ok: value.ok,
-            fails: value.fail,
-            count: value.ok + value.fail,
-            lastAt: value.lastAt,
-            lastFailAt: value.lastFailAt ?? 0,
-            errors: errorStats.get(key) ?? {},
-          });
-        }
-
-        /* 计数只记录“发生过的事”。把已知的技能和服务器补成 0，
-           页面才能回答「这东西到底有没有被用过」，而不是只列出用过的。 */
-        const emptyRow = (key, kind, name) => ({
-          key,
-          kind,
-          name,
-          ok: 0,
-          fails: 0,
-          count: 0,
-          lastAt: 0,
-          lastFailAt: 0,
-          errors: {},
-        });
-        try {
-          for (const skill of await scanSkills()) {
-            const key = `skill:${skill.name}`;
-            if (!rows.has(key)) rows.set(key, emptyRow(key, "skill", skill.name));
-          }
-        } catch {
-          /* 扫描失败不影响已有计数 */
-        }
-        try {
-          for (const server of await readServers(modelFile, dataFile)) {
-            const key = `mcp:${server.serverName}`;
-            if (!rows.has(key)) rows.set(key, emptyRow(key, "mcp", server.serverName));
-          }
-        } catch {
-          /* ignore */
-        }
-
-        /* 按天序列：趋势图和每行的迷你柱都用它。窗口固定 14 天，缺的补 0。 */
-        const dayKeys = recentDayKeys();
-        const seriesOf = (key) => {
-          const okSeries = [];
-          const failSeries = [];
-          for (const day of dayKeys) {
-            const bucket = days.get(day)?.get(key);
-            okSeries.push(bucket?.ok ?? 0);
-            failSeries.push(bucket?.fail ?? 0);
-          }
-          return { ok: okSeries, fail: failSeries };
-        };
-
-        /* 已隐藏、但当前连计数都没有的键（数据过期，或服务器/技能早就没了）也要能
-           出现在「已隐藏」里——否则用户永远拿不回来。 */
-        for (const key of hiddenKeys) {
-          if (rows.has(key)) continue;
-          const kind = key.startsWith("mcp:") ? "mcp" : "skill";
-          rows.set(key, emptyRow(key, kind, key.slice(kind.length + 1)));
-        }
-
-        const everything = [...rows.values()]
-          .map((row) => ({ ...row, series: seriesOf(row.key) }))
-          .sort((a, b) => b.count - a.count || String(a.name).localeCompare(String(b.name)));
-
-        return json({
-          ok: true,
-          since: statsSince,
-          days: dayKeys,
-          rows: everything.filter((row) => !hiddenKeys.has(row.key)),
-          hiddenRows: everything.filter((row) => hiddenKeys.has(row.key)),
-        });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  });
-
-  /**
-   * 从统计里隐藏 / 恢复一行。只改展示，不删数据，所以永远可以恢复。
-   * 必须先改内存再立即落盘：落盘是内存全量快照，只改文件会被下一次防抖保存覆盖回去。
-   */
-  ctx.connection.fetch.register({
-    path: "/api/service-manager/stats/hide",
-    methods: ["POST"],
-    requestBody: "buffered",
-    fetch: async (request) => {
-      try {
-        const body = await request.json();
-        const key = typeof body?.key === "string" ? body.key : "";
-        if (!STAT_KEY_RE.test(key)) throw new Error("统计键不合法");
-        const hide = body?.hidden !== false;
-        if (hide) hiddenKeys.add(key);
-        else hiddenKeys.delete(key);
-        await persistStats();
-        return json({ ok: true, key, hidden: hide, hiddenKeys: [...hiddenKeys].sort() });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  });
-
-  ctx.connection.fetch.register({
     path: "/api/service-manager/open",
     methods: ["POST"],
     requestBody: "buffered",
@@ -1976,5 +1574,3 @@ export function apply(ctx, config) {
     },
   });
 }
-
-export { classifyError, sanitizeSample, pickErrorCode };

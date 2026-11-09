@@ -4,7 +4,7 @@
 
 **在 DeepSeek Harness 里，一个页面管完所有 MCP 服务器和 SKILL。**
 
-增删改启停不用碰 YAML · 浏览技能 · 用你自己的模型把英文摘要翻成中文 · 看清楚到底谁被调用了多少次
+增删改启停不用碰 YAML · 浏览技能 · 用你自己的模型把英文摘要翻成中文
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.0--rc.1-6f42c1)](#兼容性)
@@ -12,8 +12,6 @@
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 
 [English](README.md) · 简体中文
-
-<img src="docs/screenshots/tour.gif" alt="三个标签页走查" width="760">
 
 </div>
 
@@ -28,7 +26,7 @@ DSH 官方没有 MCP 管理界面——想加一台服务器只能手写 YAML，
 - [功能](#功能) · [截图](#截图) · [环境要求](#环境要求) · [安装](#安装)
 - [使用](#使用) · [它会写哪些文件](#它会写哪些文件) · [安全边界](#安全边界)
 - [工作原理](#工作原理) · [兼容性](#兼容性) · [常见问题](#常见问题)
-- [开发](#开发) · [参与贡献](#参与贡献) · [License](#license)
+- [开发](#开发) · [更新记录](#更新记录) · [参与贡献](#参与贡献) · [License](#license)
 
 ## 功能
 
@@ -51,16 +49,6 @@ DSH 官方没有 MCP 管理界面——想加一台服务器只能手写 YAML，
 - **一键定位** —— 抽屉里路径旁有个文件夹按钮，点了就在资源管理器里选中那个 `SKILL.md`
 
 > 翻译只影响你看到的字。`SKILL.md` 一个字节都不改，注入给模型的仍然是英文原文。
-
-### 调用统计
-
-每台 MCP 服务器、每个技能被调用了多少次，从安装当天起累计。不用翻会话日志就能回答「这台服务器值不值得占我那么多上下文」。
-
-MCP 的失败次数也在这里，并按六类归因：网络/超时、鉴权失败、参数错误、服务端错误、调用被取消、未知。点选一台服务器，图表从「按服务器」切换为「按错误类型」，每类带一句原因说明，并保留原始错误码与脱敏后的样本。
-
-表格上方是近 14 天的调用柱状图；每一行右侧还有自己的迷你柱，条尾的红色段显示失败占比。
-
-某一行不再关心了（比如试过又卸掉的服务器），把鼠标移到行尾点「隐藏」，它会从图表和表格里消失，但数据不删。页面底部会出现「已隐藏 n 项」清单，随时可以「恢复」。
 
 ### Agent 工具
 
@@ -124,10 +112,6 @@ MCP 的失败次数也在这里，并按六类归因：网络/超时、鉴权失
 </tr>
 </table>
 
-**调用统计**
-
-![调用统计](docs/screenshots/05-stats.png)
-
 ## 环境要求
 
 - DeepSeek Harness `>= 0.2.0-rc.1 < 0.3.0`
@@ -158,8 +142,6 @@ https://github.com/Baisbt/Baisbt-dsh-service-manager
 
 **技能** —— 摘要默认英文。选一个模型，点 **重新翻译全部**，卡片会逐块填上译文。工具条上的开关切换全部卡片；卡片右下角的 ↻ 只重翻那一张。
 
-**调用统计** —— 只读计数，一行一台服务器、一个技能。
-
 **打开配置目录** —— 页面上有个入口可以在文件管理器里打开 profile 目录（`explorer.exe` / `open` / `xdg-open`）。它只是打开文件夹，插件不会去改你自己的文件。
 
 ## 它会写哪些文件
@@ -171,7 +153,6 @@ https://github.com/Baisbt/Baisbt-dsh-service-manager
 | `<profile>/mcp-servers.yml` | 生成的 MCP 行，`cordis:include` 的加载目标 |
 | `<profile>/.dsh-service-manager/servers.json` | 服务器列表的数据源 |
 | `<profile>/.dsh-service-manager/translations.json` | 翻译缓存，按原文哈希索引 |
-| `<profile>/.dsh-service-manager/stats.json` | 调用计数 |
 | `<profile>/.dsh-service-manager/settings.json` | 你选的模型 |
 | `<profile>/.dsh-service-manager/diagnostics.json` | Agent 工具与加载期探针的健康状态 |
 
@@ -258,12 +239,10 @@ cmd /c rmdir /s /q "<profile>\node_modules\dsh-service-manager"
 没有构建步骤，`index.js` 和 `client.js` 都是直接运行的 ESM。
 
 ```bash
-# 离线渲染冒烟：用最小 React 替身把三个页面、两个抽屉、中英两种语言都渲染一遍
+# 离线渲染冒烟：用最小 React 替身把两个页面、两个抽屉、中英两种语言都渲染一遍
 node test/render-smoke.mjs
 # Host 冒烟：用最小 ctx 替身真跑一遍 apply()，并模拟「启动后磁盘被换成新版」
 node test/host-smoke.mjs
-# 错误分类的纯函数断言
-node test/stats-classify.mjs
 ```
 
 发布前跑一次构建戳，把版本、commit、构建时间写进两半区的 `BUILD` 常量：
@@ -284,6 +263,12 @@ node docs/preview/serve.mjs   # 然后打开 http://127.0.0.1:4173/docs/preview/
 版本提示条有四种状态可以看：`?version=ok`（默认，无提示）、`?version=stale`（需要重启）、`?version=page`（页面是旧构建）、`?version=unknown`（读不到磁盘版本）。
 
 这个预览环境也是改 UI 最快的路子——不用安装任何东西。
+
+## 更新记录
+
+### 0.10.0
+
+- **移除调用统计。** 调用统计页和它的全部采集代码已删除，插件只剩 MCP 服务器与技能两个页面。旧数据文件 `<profile>\.dsh-service-manager\stats.json` 已成为孤儿文件，可以手动删除；插件不再读写它。
 
 ## 参与贡献
 
