@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
          * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
          * 构建戳打在源码上，编译时原样落到 client.js。
          */
-        const BUILD = { version: "0.13.0", commit: "3347696", built: "2026-11-09T12:20:16.923Z" };
+        const BUILD = { version: "0.13.1", commit: "cb19826", built: "2026-11-09T13:36:11.568Z" };
         /* ---------------------------------------------------------------- 文案 */
         const PRESETS = [
             {
@@ -783,91 +783,17 @@ window.__ModuleLoader__.load({
                 throw new Error(payload.error || "请求失败");
             return payload;
         };
-        /* ------------------------------------------- 可选的 dsh-context 联动 */
+        /* ------------------------------------------- 可选的 dsh-context 联动（宿主聚合，只读） */
         /**
-         * 这一块的铁律：**失败即隐身**。
-         *  - 探测：它没装 / 版本太旧 / cookie 过期，一律落到 absent，绝不冒泡成页面错误；
-         *  - 读数：拿不到就是没有数据，不显示 0、不显示假数字；
+         * 铁律：**失败即隐身**。
+         *  - 读数：宿主说 `available:false` 就当作没有，不显示 0、不显示假数字；
          *  - 深链：面板没注册就不渲染入口。
-         * 探测与读技能用量直接 fetch（404 是"没装"的证据，不能被 request() 当异常吞掉）；
-         * 读成本走自己的路由，用 request() 就够了。
+         *
+         * 页面**不打** dsh-context 的 HTTP 路由：它的 `/snapshot` 会为所有会话折叠时间线，
+         * 本机 100+ 会话时又慢又重。成本与技能用量都由宿主从 DSH 投影里聚合好再给。
          */
         const CONTEXT_PANEL_ID = "dsh-context";
-        const contextPost = (url, body = {}) => fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body ?? {}),
-            credentials: "same-origin",
-        });
-        let contextProbePromise = null;
-        /** 只在页面生命周期里探一次；返回 absent 时后续读取全部短路。 */
-        const probeContext = () => {
-            if (contextProbePromise)
-                return contextProbePromise;
-            contextProbePromise = (async () => {
-                /* 0.83+ 有便宜的 /version；0.82.x 没有会 404，继续往下试 */
-                try {
-                    const res = await contextPost("/api/dsh-context/version");
-                    if (res.ok) {
-                        const payload = await res.json().catch(() => null);
-                        if (payload?.ok === true)
-                            return "ok";
-                    }
-                }
-                catch {
-                    /* 落到 /snapshot */
-                }
-                try {
-                    const res = await contextPost("/api/dsh-context/snapshot");
-                    if (!res.ok)
-                        return "absent";
-                    const payload = await res.json().catch(() => null);
-                    if (payload?.ok !== true)
-                        return "absent";
-                    const values = Object.values(payload.value ?? {});
-                    /* 装是装了，但它自己判断 DSH 版本太旧时给的是占位值 */
-                    return values.some((value) => value?.contextTimeline?.unsupported) ? "unsupported" : "ok";
-                }
-                catch {
-                    return "absent";
-                }
-            })();
-            return contextProbePromise;
-        };
-        /** 近 7 天每个技能被加载的次数与最近时间；只读聚合数字，不碰正文。 */
-        const readSkillUsage = async () => {
-            try {
-                if ((await probeContext()) !== "ok")
-                    return null;
-                const res = await contextPost("/api/dsh-context/snapshot");
-                if (!res.ok)
-                    return null;
-                const payload = await res.json().catch(() => null);
-                if (payload?.ok !== true)
-                    return null;
-                const since = Date.now() - 7 * 24 * 3600 * 1000;
-                const out = {};
-                for (const session of Object.values(payload.value ?? {})) {
-                    const days = session?.contextActivity?.days ?? {};
-                    for (const [day, entry] of Object.entries(days)) {
-                        const at = Date.parse(`${day}T00:00:00`);
-                        if (!Number.isFinite(at) || at < since)
-                            continue;
-                        for (const [name, tally] of Object.entries(entry?.skills ?? {})) {
-                            const n = Number(tally?.n) || 0;
-                            const last = Number(tally?.last) || 0;
-                            const prev = out[name] ?? { n: 0, last: 0 };
-                            out[name] = { n: prev.n + n, last: Math.max(prev.last, last) };
-                        }
-                    }
-                }
-                return out;
-            }
-            catch {
-                return null;
-            }
-        };
-        /** 宿主侧聚合并返回；宿主说 available:false 时返回 null（= 不渲染这一列）。 */
+        /** 宿主侧聚合返回；宿主说 available:false 时返回 null（= 不渲染这一列）。 */
         const readContextCost = async () => {
             try {
                 const payload = await request("/api/service-manager/context-cost", {
@@ -875,9 +801,30 @@ window.__ModuleLoader__.load({
                     headers: { "content-type": "application/json" },
                     body: "{}",
                 });
-                if (payload?.available !== true)
+                return payload?.available === true ? payload : null;
+            }
+            catch {
+                return null;
+            }
+        };
+        /** 近 7 天每个技能被加载的次数与最近时间；只读聚合数字，不碰正文。 */
+        const readContextUsage = async () => {
+            try {
+                const payload = await request("/api/service-manager/context-usage", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: "{}",
+                });
+                if (payload?.available !== true || !Array.isArray(payload.skills))
                     return null;
-                return payload;
+                const out = {};
+                for (const row of payload.skills) {
+                    const name = String(row?.name ?? "");
+                    if (!name)
+                        continue;
+                    out[name] = { n: Number(row.n) || 0, last: Number(row.last) || 0 };
+                }
+                return out;
             }
             catch {
                 return null;
@@ -2252,8 +2199,19 @@ window.__ModuleLoader__.load({
                 /**
                  * 深链入口只在「dsh-context 的 main 面板真的注册着」时出现。
                  * 它可能没装，也可能装了但用户在偏好里把洞察页入口关了——两种都当作没有入口。
+                 *
+                 * 首选 layout 服务的 `hasMainPanel`（和 selectPanel 内部检查的是同一个注册表），
+                 * 老版本没有这个方法时再退回 slots.entries。
                  */
                 contextPanelProbe = () => {
+                    try {
+                        const layout = ctx.get("layout");
+                        if (typeof layout?.hasMainPanel === "function")
+                            return layout.hasMainPanel(CONTEXT_PANEL_ID) === true;
+                    }
+                    catch {
+                        /* 落到 slots 注册表 */
+                    }
                     try {
                         const entries = ctx.slots?.entries?.("main") ?? [];
                         return entries.some((entry) => entry?.options?.key === CONTEXT_PANEL_ID);
@@ -2284,6 +2242,19 @@ window.__ModuleLoader__.load({
                     store = { ...store, ...patch };
                     emit();
                 };
+                /* 排查用：浏览器控制台里 `__smDiag()` 能看到探针读到了什么（不进 UI） */
+                try {
+                    window.__smDiag = () => ({
+                        hasMainPanelApi: typeof ctx.get("layout")?.hasMainPanel === "function",
+                        hasSlotsEntries: typeof ctx.slots?.entries === "function",
+                        panel: contextPanelProbe(),
+                        cost: store.context?.cost?.available ?? null,
+                        usageKeys: Object.keys(store.context?.usage ?? {}),
+                    });
+                }
+                catch {
+                    /* ignore */
+                }
                 /**
                  * 读一次版本自述。
                  *  404 = 正在跑的 Host 还没有这条路由，也就是它比页面旧。这是最需要说出来的一种情况：
@@ -2306,15 +2277,27 @@ window.__ModuleLoader__.load({
                             const payload = await request("/api/service-manager/mcp");
                             set({ servers: payload.servers ?? [] });
                             /* 成本列是增强项：读不到就当作没有这一列，绝不影响上面的列表 */
-                            void readContextCost().then((cost) => set({ context: { ...(store.context ?? { probe: "unknown" }), cost } }));
+                            void readContextCost().then((cost) => set({
+                                context: {
+                                    ...(store.context ?? { probe: "unknown" }),
+                                    probe: cost ? "ok" : (store.context?.probe ?? "unknown"),
+                                    cost,
+                                },
+                            }));
                         }
                         if (scope === "skill") {
                             const payload = await request("/api/service-manager/skills");
                             set({ skills: payload.skills ?? [] });
+                            /* 技能用量同样由宿主聚合；拿不到就不显示那一行 */
                             void (async () => {
-                                const probe = await probeContext();
-                                const usage = probe === "ok" ? (await readSkillUsage()) ?? undefined : undefined;
-                                set({ context: { ...(store.context ?? { probe: "unknown" }), probe, usage } });
+                                const usage = (await readContextUsage()) ?? undefined;
+                                set({
+                                    context: {
+                                        ...(store.context ?? { probe: "unknown" }),
+                                        probe: usage ? "ok" : "absent",
+                                        usage,
+                                    },
+                                });
                             })();
                         }
                     }

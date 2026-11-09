@@ -282,6 +282,12 @@ That preview environment is also the fastest way to iterate on the UI without in
 
 ## Changelog
 
+### 0.13.1
+
+- **Skill usage is aggregated on the Host now.** The page no longer calls dsh-context's `/snapshot` — that route folds every session's timeline, which gets slow with a long session list. The Host reads the small per-day `contextActivity` projection instead.
+- **More reliable deep-link check.** The button now asks the layout service's `hasMainPanel` (the same registry `selectPanel` checks), falling back to the slot registry on older builds.
+- Diagnostic hook: `__smDiag()` in the browser console reports what the panel probe and both readings actually got.
+
 ### 0.13.0
 
 - **Optional integration with [`dsh-context`](https://github.com/bowenliang123/dsh-context).** When it is installed, the MCP table gains a **Tokens / turn** column — each server's tool definitions in the latest request, estimated — and a **Context details** button that opens its insights page; skill cards show how often each skill was loaded in the last 7 days. Nothing is required: without dsh-context the page is exactly as before, and nothing ever asks you to install it.

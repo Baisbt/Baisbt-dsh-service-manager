@@ -97,6 +97,7 @@ async function boot(dir, profile, options = {}) {
       "/api/service-manager/paths",
       "/api/service-manager/version",
       "/api/service-manager/context-cost",
+      "/api/service-manager/context-usage",
     ];
     const missing = expected.filter((route) => !routes.has(route));
     check(`${expected.length} 条路由全部注册`, missing.length === 0, missing.join(","));
@@ -391,12 +392,57 @@ async function boot(dir, profile, options = {}) {
   check("/context-cost 缓存读到的是会话头（带 id）", seenHeader?.id === "s9", JSON.stringify(seenHeader));
 }
 
+/* 技能使用频次：同样来自 dsh-context 的投影（contextActivity），宿主侧聚合 */
+{
+  const profile = await temp("sm-profile-");
+  const today = new Date().toISOString().slice(0, 10);
+  const old = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const session = { id: "s2" };
+  const { call } = await boot(ROOT, profile, {
+    get: (name) => {
+      if (name === "sessions") return { list: () => [session] };
+      if (name === "sessionProjections") {
+        return {
+          snapshot: (_session, keys) =>
+            keys.has("contextActivity")
+              ? {
+                  values: {
+                    contextActivity: {
+                      days: {
+                        [today]: {
+                          skills: {
+                            "banner-design": { n: 2, last: Date.now() - 3600_000 },
+                            brand: { n: 1, last: Date.now() - 7200_000 },
+                          },
+                        },
+                        /* 30 天前的老记录不该算进「近 7 天」 */
+                        [old]: { skills: { "banner-design": { n: 9, last: Date.now() - 30 * 86400_000 } } },
+                      },
+                    },
+                  },
+                }
+              : undefined,
+        };
+      }
+      return null;
+    },
+  });
+  const usage = await call("/api/service-manager/context-usage", { method: "POST", body: "{}" });
+  check("/context-usage 可用", usage.available === true, JSON.stringify(usage));
+  check(
+    "/context-usage 只统计近 7 天",
+    usage.skills?.find((row) => row.name === "banner-design")?.n === 2,
+    JSON.stringify(usage.skills)
+  );
+  check("/context-usage 带出最近时间", (usage.skills?.find((row) => row.name === "banner-design")?.last ?? 0) > 0);
+}
+
 for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
 
 let failures = 0;
 for (const [label, ok, detail] of checks) {
   if (!ok) failures += 1;
-  if (!ok || /apply|stale|unknown|路由|stats|翻译|缓存|语言|上下文|context-cost/.test(label)) {
+  if (!ok || /apply|stale|unknown|路由|stats|翻译|缓存|语言|上下文|context-cost|context-usage/.test(label)) {
     console.log(`${ok ? "✔" : "✘"} ${label}${!ok && detail ? ` — ${detail}` : ""}`);
   }
 }

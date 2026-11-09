@@ -463,7 +463,8 @@ const openContextInsights = () => {
 ### 10.2 实现要点（与 §4 的契约一一对应）
 
 - **宿主**：`index.js` 的 `readContextCost(ctx)` 读 `sessionProjections.snapshot`（活会话）/ `sessionProjectionCache.cachedSnapshot`（冷会话，最多试 8 条），取最新 `contextHeaders` 的 `tools[]`，按 `mcp__<server>__*` 聚合；路由 `POST /api/service-manager/context-cost` 返回 `ok: true` + `available: true/false`。
-- **客户端**：`probeContext()` 先试 `/api/dsh-context/version`（0.83+），404 再试 `/snapshot`（0.82.x）；`readSkillUsage()` 只取近 7 天的 `contextActivity.days[*].skills`；深链用 `ctx.slots.entries("main")` 判断面板在不在，再 `ctx.layout.selectPanel`。
+- **客户端**：页面**不再请求 dsh-context 的任何路由**；成本与技能用量都来自宿主的两条只读路由（`context-cost` / `context-usage`）。深链先问 `ctx.layout.hasMainPanel("dsh-context")`（和 `selectPanel` 内部是同一个注册表），旧版本退回 `ctx.slots.entries("main")`。
+- **为什么不用它的 HTTP**：它 0.82.1 的 `/snapshot` 会为**所有**会话折叠 `contextTimeline`，本机 121 条会话时又慢又重；`contextActivity` 只是一张按天小账本，宿主读它几乎零成本。
 - **不改契约**：`package.json` 没有新增依赖，`dsh.client.inject` 没动，也没有任何 `require("dsh-context")`。
 
 ### 10.3 验收
@@ -488,8 +489,9 @@ node test/host-smoke.mjs     # 57 项：含「没有 dsh-context 时 available:f
 
 ### 10.4 与可行性阶段的偏差
 
-- 深链原计划用 try/catch；实现改成**先查 `ctx.slots.entries("main")` 再点**（§6.4 已更新），更干净。
+- 深链原计划用 try/catch；实现改成**先查注册表再点**（§6.4 已更新），更干净。0.13.1 起判定优先用 `ctx.layout.hasMainPanel`，`ctx.slots.entries` 仅作兜底。
 - 宿主路由**不返回 404**：没数据时返回 `ok: true, available: false`。404 的语义是"路由不存在"，而这里路由一直在，只是没数据。
+- **技能用量不走它的 HTTP**：0.82.1 的 `/snapshot` 给所有会话折叠时间线，会话一多就慢；改成宿主读 `contextActivity` 投影（0.13.1）。功能不变，页面少一个失败点。
 - 没有实现候选 4（安装前预估：核心无逐工具数据）与候选 5（改用它的技能接口：权威性转移）——理由见 §7。
 
 ---

@@ -34,7 +34,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.13.0", commit: "3347696", built: "2026-11-09T12:20:16.923Z" };
+const BUILD = { version: "0.13.1", commit: "cb19826", built: "2026-11-09T13:36:11.568Z" };
 
 function readSelfVersion() {
   try {
@@ -227,66 +227,73 @@ function readToolIndex(ctx) {
   return index;
 }
 
-/* ------------------------------------------- 上下文成本（可选的 dsh-context 联动） */
+/* ------------------------------------------- 上下文成本 / 技能使用（可选的 dsh-context 联动） */
 
 const MCP_TOOL_NAME_RE = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/;
 
 /**
- * 读「MCP 服务器每轮固定占多少 tokens」。
+ * 按 key 收集会话投影的 wire view。
  *
- * 数据来自 dsh-context 注册的会话投影 `contextHeaders`——这里**不 import 它、也不改它**，
- * 只是按 DSH 官方方式读投影注册表/缓存。它没装（或 DSH 版本太旧）时这个 key 不存在，
- * 本函数返回 `{ available: false }`：页面据此不渲染那一列，而不是报错。
- *
- * 该投影的 wire view 形如：
- *   { headers: [{ seq, time, tools: [{ name, tokens, plugin? }] }] }   // 最多 50 条
- * tools[].name 与 readToolIndex 用的是同一套 `mcp__<server>__<tool>` 命名，所以 join 是免费的。
+ * 「活会话优先」：内存里的当前值；冷会话再退持久检查点（零 I/O）。
+ * 全部走 DSH 官方投影服务，**不 import dsh-context、也不碰它的 HTTP 路由**。
+ * 它没装（或 DSH 版本太旧）时对应的 key 不存在，收集结果为空数组。
  */
-function readContextCost(ctx) {
+function collectProjectionValues(ctx, key, { coldLimit = 60 } = {}) {
   const projections = ctx?.get?.("sessionProjections") ?? null;
   const cache = ctx?.get?.("sessionProjectionCache") ?? null;
   const sessions = ctx?.get?.("sessions") ?? null;
   const query = ctx?.get?.("sessionQuery") ?? null;
-  if (!projections && !cache) return { available: false, reason: "no-projection-service" };
+  if (!projections && !cache) return [];
+  const keys = new Set([key]);
+  const values = [];
 
-  const keys = new Set(["contextHeaders"]);
-  const readers = [];
-
-  /* 活会话优先：读的是内存里的当前值，不需要 I/O */
   try {
     const live = sessions?.list?.() ?? [];
     for (const session of Array.isArray(live) ? live : []) {
-      readers.push(() => projections?.snapshot?.(session, keys)?.values);
+      try {
+        const block = projections?.snapshot?.(session, keys);
+        const value = block?.values?.[key] ?? block?.[key];
+        if (value !== undefined) values.push(value);
+      } catch {
+        /* 单个会话读失败不影响其它会话 */
+      }
     }
   } catch {
-    /* 拿不到活会话就只走持久缓存 */
+    /* 没有 sessions 服务 */
   }
 
-  /* 冷会话：读检查点（零 I/O）。只试最近几条，避免把整份会话列表都折一遍。
-     cachedSnapshot 收的是「会话头」（生命周期身份），不是 id，也不是列表项本身。 */
-  if (readers.length === 0) {
-    try {
-      const metas = query?.listSessions?.() ?? [];
-      for (const meta of Array.isArray(metas) ? metas.slice(-8) : []) {
+  try {
+    const metas = query?.listSessions?.() ?? [];
+    const tail = Array.isArray(metas) ? metas.slice(-coldLimit) : [];
+    for (const meta of tail) {
+      try {
+        /* cachedSnapshot 收的是「会话头」，不是 id，也不是列表项本身 */
         const header = meta?.header ?? meta;
-        readers.push(() => {
-          const block = cache?.cachedSnapshot?.(header, keys);
-          return block?.values ?? block ?? undefined;
-        });
+        const block = cache?.cachedSnapshot?.(header, keys);
+        const value = (block?.values ?? block)?.[key];
+        if (value !== undefined) values.push(value);
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
+  } catch {
+    /* 没有 sessionQuery 服务 */
   }
 
-  for (const read of readers) {
-    let values;
-    try {
-      values = read();
-    } catch {
-      continue;
-    }
-    const headers = values?.contextHeaders?.headers;
+  return values;
+}
+
+/**
+ * 「MCP 服务器每轮固定占多少 tokens」。
+ *
+ * 数据来自 dsh-context 注册的会话投影 `contextHeaders`：
+ *   { headers: [{ seq, time, tools: [{ name, tokens, plugin? }] }] }   // 最多 50 条
+ * tools[].name 与 readToolIndex 用的是同一套 `mcp__<server>__<tool>` 命名，所以 join 是免费的。
+ * 没数据时返回 `{ available: false }`：页面据此不渲染这一列，而不是报错。
+ */
+function readContextCost(ctx) {
+  for (const value of collectProjectionValues(ctx, "contextHeaders", { coldLimit: 8 })) {
+    const headers = value?.headers;
     if (!Array.isArray(headers) || headers.length === 0) continue;
     const header = headers[headers.length - 1] ?? null;
     const tools = Array.isArray(header?.tools) ? header.tools : [];
@@ -320,6 +327,49 @@ function readContextCost(ctx) {
   }
 
   return { available: false, reason: "no-context-headers" };
+}
+
+/**
+ * 「近 N 天每个技能被加载了几次」。
+ *
+ * 数据来自 `contextActivity`（同样是 dsh-context 注册的投影）：
+ *   { days: { "YYYY-MM-DD": { skills: { <name>: { n, last } } } } }
+ *
+ * 宿主侧聚合而不是让页面去打 dsh-context 的 `/snapshot`：
+ * 那条路由会为**所有**会话折叠 contextTimeline，本机 100+ 会话时又慢又重；
+ * 而 contextActivity 只是一张很小的按天账本。
+ */
+function readContextUsage(ctx, days = 7) {
+  const since = Date.now() - days * 24 * 3600 * 1000;
+  const totals = new Map();
+  let sessions = 0;
+
+  for (const value of collectProjectionValues(ctx, "contextActivity")) {
+    const map = value?.days;
+    if (!map || typeof map !== "object") continue;
+    sessions += 1;
+    for (const [day, entry] of Object.entries(map)) {
+      const at = Date.parse(`${day}T00:00:00`);
+      if (!Number.isFinite(at) || at < since) continue;
+      for (const [name, tally] of Object.entries(entry?.skills ?? {})) {
+        const n = Number(tally?.n) || 0;
+        if (n <= 0) continue;
+        const last = Number(tally?.last) || 0;
+        const prev = totals.get(name) ?? { n: 0, last: 0 };
+        totals.set(name, { n: prev.n + n, last: Math.max(prev.last, last) });
+      }
+    }
+  }
+
+  if (!totals.size) return { available: false, reason: "no-skill-activity", sessions };
+  return {
+    available: true,
+    windowDays: days,
+    sessions,
+    skills: [...totals.entries()]
+      .map(([name, tally]) => ({ name, ...tally }))
+      .sort((a, b) => b.n - a.n || b.last - a.last),
+  };
 }
 
 function toView(server) {
@@ -1807,6 +1857,24 @@ export function apply(ctx, config) {
     fetch: async () => {
       try {
         return json({ ok: true, ...readContextCost(ctx) });
+      } catch (error) {
+        return json({ ok: true, available: false, reason: String(error?.message ?? error) });
+      }
+    },
+  });
+
+  /**
+   * 技能使用频次（可选联动）。同样：拿不到数据是正常状态。
+   * 页面只读这里的聚合数字，不去打 dsh-context 的 HTTP 路由——
+   * 那条 /snapshot 会给所有会话折叠时间线，会话一多就慢得离谱。
+   */
+  ctx.connection.fetch.register({
+    path: "/api/service-manager/context-usage",
+    methods: ["POST"],
+    requestBody: "buffered",
+    fetch: async () => {
+      try {
+        return json({ ok: true, ...readContextUsage(ctx) });
       } catch (error) {
         return json({ ok: true, available: false, reason: String(error?.message ?? error) });
       }
