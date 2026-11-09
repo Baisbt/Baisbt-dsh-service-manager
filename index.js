@@ -35,7 +35,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.9.0", commit: "3af6d3e", built: "2026-11-09T02:32:38.535Z" };
+const BUILD = { version: "0.9.1", commit: "9a89e62", built: "2026-11-09T03:06:23.002Z" };
 
 function readSelfVersion() {
   try {
@@ -372,6 +372,11 @@ async function writeJsonFile(file, value) {
 function openWithShell(target, reveal) {
   return new Promise((resolve) => {
     try {
+      /* 测试钩子：host-smoke 会走「打开」这条路，不能真的弹出资源管理器 */
+      if (process.env.DSH_SERVICE_MANAGER_NO_OPEN === "1") {
+        resolve({ ok: true, skipped: true });
+        return;
+      }
       if (process.platform === "win32") {
         const args = reveal ? ["/select,", target] : [target];
         const child = spawn("explorer.exe", args, { detached: true, stdio: "ignore" });
@@ -1690,12 +1695,23 @@ export function apply(ctx, config) {
     fetch: async (request) => {
       try {
         const body = await request.json();
-        const kind = body.kind === "folder" ? "folder" : "file";
-        const target = kind === "file" ? dataFile : profileDir;
+        const kind = body.kind === "folder" ? "folder" : body.kind === "skill" ? "skill" : "file";
+        let target;
+        if (kind === "file") {
+          target = dataFile;
+        } else if (kind === "folder") {
+          target = profileDir;
+        } else {
+          /* 只接受「本插件扫描到的技能名」：客户端不传路径，避免被当成任意文件的打开器 */
+          const name = typeof body.name === "string" ? body.name : "";
+          const skill = (await scanSkills()).find((entry) => entry.name === name);
+          if (!skill?.path) throw new Error(`找不到技能：${name || "(空)"}`);
+          target = skill.path;
+        }
         if (!existsSync(target)) throw new Error(`路径不存在：${target}`);
-        const result = await openWithShell(target, kind === "file");
+        const result = await openWithShell(target, kind !== "folder");
         if (!result.ok) throw new Error(result.error);
-        return json({ ok: true, target });
+        return json({ ok: true, kind, target });
       } catch (error) {
         return fail(error);
       }

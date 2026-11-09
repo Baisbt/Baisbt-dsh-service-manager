@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
      * 由 scripts/stamp.mjs 写入。用来判断「页面里这份 JS 是不是旧构建」——
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      */
-    const BUILD = { version: "0.9.0", commit: "3af6d3e", built: "2026-11-09T02:32:38.535Z" };
+    const BUILD = { version: "0.9.1", commit: "9a89e62", built: "2026-11-09T03:06:23.002Z" };
 
     /* 模板：只做"预填 + 把密钥写成 ${VAR}"，不引入第二套表单 */
     const PRESETS = [
@@ -119,6 +119,7 @@ window.__ModuleLoader__.load({
         restoreStat: "恢复",
         kindMcp: "MCP",
         kindSkill: "技能",
+        showInFiles: "在文件管理器中显示",
         edit: "编辑",
         remove: "删除",
         enable: "启用",
@@ -279,6 +280,7 @@ window.__ModuleLoader__.load({
         restoreStat: "Restore",
         kindMcp: "MCP",
         kindSkill: "Skill",
+        showInFiles: "Show in file manager",
         edit: "Edit",
         remove: "Remove",
         enable: "Enable",
@@ -886,6 +888,10 @@ window.__ModuleLoader__.load({
 .smDrawerTitleWrap{display:flex;flex-direction:column;gap:3px;min-width:0}
 .smDrawerTitle{margin:0;font-size:15px;font-weight:500;line-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smDrawerMeta{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 路径后面挂一个「在文件管理器中显示」的小按钮：路径本身可能很长，按钮不能被挤走 */
+.smDrawerMetaRow{display:flex;align-items:center;gap:6px;min-width:0}
+.smDrawerMetaRow .smDrawerMeta{flex:1 1 auto;min-width:0}
+.smIconBtnTiny{width:22px;height:22px;flex:none}
 .smDrawerBody{flex:1;overflow:auto;padding:16px 20px 28px;overscroll-behavior:contain}
 .smSummary{display:flex;flex-direction:column;gap:6px}
 .smSummaryLabel{font-size:11px;line-height:14px;letter-spacing:.03em;color:var(--dsw-alias-label-caption)}
@@ -1111,7 +1117,7 @@ window.__ModuleLoader__.load({
     const paramKeyOf = (server, tool, param) => `${server.id}:${tool.name}#${param.name}`;
 
     /** 抽屉外壳：遮罩 + 右侧滑入 + Esc 关闭，技能和工具共用。 */
-    function DrawerShell({ t, title, subtitle, onClose, children }) {
+    function DrawerShell({ t, title, subtitle, onClose, onLocate, children }) {
       const [open, setOpen] = useState(false);
       /* 用 ref 存回调：父组件重渲染会换掉 onClose 的函数身份，
          如果进把它放进依赖里，effect 每次都被取消，进场动画就永远播不出来。 */
@@ -1146,7 +1152,26 @@ window.__ModuleLoader__.load({
               "div",
               { className: "smDrawerTitleWrap" },
               h("h2", { className: "smDrawerTitle" }, title),
-              subtitle ? h("div", { className: "smDrawerMeta smMono" }, subtitle) : null
+              subtitle
+                ? h(
+                    "div",
+                    { className: "smDrawerMetaRow" },
+                    h("div", { className: "smDrawerMeta smMono" }, subtitle),
+                    onLocate
+                      ? h(
+                          "button",
+                          {
+                            type: "button",
+                            className: "smIconBtn smIconBtnTiny",
+                            title: t("showInFiles"),
+                            "aria-label": t("showInFiles"),
+                            onClick: onLocate,
+                          },
+                          h(IconFolder, { size: 13 })
+                        )
+                      : null
+                  )
+                : null
             ),
             h("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": t("close") }, h(IconClose, { size: 15 }))
           ),
@@ -1186,7 +1211,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function SkillDrawer({ skill, t, entry, busy, target, onRetranslate, onClose }) {
+    function SkillDrawer({ skill, t, entry, busy, target, onRetranslate, onClose, onLocate }) {
       const [body, setBody] = useState(null);
       const [error, setError] = useState("");
       const [loading, setLoading] = useState(true);
@@ -1214,7 +1239,7 @@ window.__ModuleLoader__.load({
 
       return h(
         DrawerShell,
-        { t, title: skill.name, subtitle: skill.path, onClose },
+        { t, title: skill.name, subtitle: skill.path, onClose, onLocate },
         h(SummarySection, { t, entry, busy, target, onRetranslate }, entry?.zh || skill.description || "—"),
         h(SourceDivider, { label: t("sourceLabel") }),
         loading
@@ -2090,6 +2115,20 @@ window.__ModuleLoader__.load({
 
       const skills = state.skills ?? [];
 
+      /* 只把技能名发给 Host，由 Host 用它自己扫描到的路径去打开——
+         客户端不传绝对路径，避免变成任意文件读取/打开的通道 */
+      const locateSkill = async (skill) => {
+        try {
+          await request("/api/service-manager/open", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind: "skill", name: skill.name }),
+          });
+        } catch (err) {
+          notify(err.message);
+        }
+      };
+
       /* 只有英文描述才需要翻译；已经是中文的跳过 */
       const translatable = useMemo(
         () => skills.filter((skill) => skill.description && !/[\u4e00-\u9fff]/.test(skill.description)),
@@ -2488,6 +2527,7 @@ window.__ModuleLoader__.load({
               busy: Boolean(pendingIds[activeSkill.path]),
               target,
               onRetranslate: () => translate([activeSkill], { force: true }),
+              onLocate: () => locateSkill(activeSkill),
               onClose: () => setActiveSkill(null),
             })
           : null,

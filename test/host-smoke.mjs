@@ -242,6 +242,46 @@ async function boot(dir, profile) {
   check("v2 文件升到 v3 且带上 hidden", file.version === 3 && Array.isArray(file.hidden), String(file.version));
 }
 
+/* ------------------------------ 6. /open：只接受「扫描到的技能名」，不接任意路径 */
+
+{
+  const profile = await temp("sm-profile-");
+  const previous = process.env.DSH_SERVICE_MANAGER_NO_OPEN;
+  process.env.DSH_SERVICE_MANAGER_NO_OPEN = "1"; /* 别真的弹资源管理器 */
+  const { call } = await boot(ROOT, profile);
+  process.env.DSH_SERVICE_MANAGER_NO_OPEN = previous;
+
+  const post = (body) =>
+    call("/api/service-manager/open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const unknown = await post({ kind: "skill", name: "../../windows/system32" });
+  check("未知技能名被拒绝（不打开任意路径）", unknown.ok === false, unknown.error);
+  check("拒绝理由是找不到技能", String(unknown.error ?? "").includes("找不到技能"), String(unknown.error));
+
+  const empty = await post({ kind: "skill" });
+  check("缺 name 也被拒绝", empty.ok === false);
+
+  /* 真实技能：走 Host 自己的扫描结果，客户端从不传路径 */
+  const list = await call("/api/service-manager/skills");
+  const first = Array.isArray(list.skills) ? list.skills[0] : null;
+  if (first) {
+    const opened = await post({ kind: "skill", name: first.name });
+    check("按技能名能定位到文件", opened.ok === true && opened.target === first.path, opened.error);
+    check("返回的路径就是扫描出来的那个", opened.target === first.path);
+  } else {
+    check("（本机没有技能，跳过定位成功用例）", true);
+  }
+
+  /* 打开配置文件那条老路子不能被改坏 */
+  await writeFile(path.join(profile, "mcp-servers.yml"), "[]", "utf8");
+  const file = await post({ kind: "file" });
+  check("打开配置文件仍然可用", file.ok === true && file.kind === "file", file.error);
+}
+
 for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
 
 let failures = 0;

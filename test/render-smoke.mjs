@@ -267,6 +267,8 @@ const cases = [
   { label: "skill (无译文)", tab: "skill" },
   { label: "skill (模型/机翻/未译出)", tab: "skill", entries: skillEntries },
   { label: "skill (抽屉)", tab: "skill", entries: skillEntries, drawer: skills[0] },
+  { label: "skill (抽屉：路径旁的文件管理器按钮)", tab: "skill", drawer: skills[0], expectAria: "在文件管理器中显示" },
+  { label: "skill (抽屉：按钮文案随语言)", tab: "skill", locale: "en", drawer: skills[0], expectAria: "Show in file manager" },
   { label: "mcp (折叠)", tab: "mcp" },
   { label: "mcp (展开工具列表)", tab: "mcp", entries: toolEntries, expand: "mcp-tavily" },
   {

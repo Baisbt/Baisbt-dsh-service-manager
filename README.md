@@ -48,6 +48,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 - **Cached on disk** — the second visit is zero requests
 - **Failure is visible** — when the model cannot deliver, the card says `机翻` (machine translation) rather than pretending it worked
 - **Delete** a skill from the page
+- **Reveal in file manager** — the folder button next to the path in the drawer selects that `SKILL.md` for you
 
 > Translations only change what you read. `SKILL.md` is never modified — the model still receives the original English prompt.
 
