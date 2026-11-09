@@ -37,6 +37,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 - **Tool drawer** — summary on top, parameter table below; parameter descriptions are translated, parameter names stay English because they are the identifiers you actually type
 - **Reconnect is visible** — saving triggers a background include refresh; the page polls the reconnect state instead of leaving you staring at a spinner
 - **`${ENV_VAR}` references** — keep secrets in the environment, not in the config file
+- **What it costs per turn** — with [`dsh-context`](https://github.com/bowenliang123/dsh-context) installed, each server shows how many tokens its tool definitions take, plus a jump to the context dashboard; without it the column simply is not there
 
 ### Skills
 
@@ -48,6 +49,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 - **Failure is visible** — when the model cannot deliver, the card says `机翻` (machine translation) rather than pretending it worked
 - **Delete** a skill from the page
 - **Reveal in file manager** — the folder button next to the path in the drawer selects that `SKILL.md` for you
+- **What you actually use** — with `dsh-context` installed, each card shows how many times the skill was loaded in the last 7 days
 
 > Translations only change what you read. `SKILL.md` is never modified — the model still receives the original English prompt.
 
@@ -279,6 +281,12 @@ The version notice has four states to look at: `?version=ok` (default, no notice
 That preview environment is also the fastest way to iterate on the UI without installing anything.
 
 ## Changelog
+
+### 0.13.0
+
+- **Optional integration with [`dsh-context`](https://github.com/bowenliang123/dsh-context).** When it is installed, the MCP table gains a **Tokens / turn** column — each server's tool definitions in the latest request, estimated — and a **Context details** button that opens its insights page; skill cards show how often each skill was loaded in the last 7 days. Nothing is required: without dsh-context the page is exactly as before, and nothing ever asks you to install it.
+- **Read-only and one-way.** The page reads dsh-context's own `contextHeaders` / `contextActivity` projections (through the Host) or its `/api/dsh-context/*` routes. It never imports, patches or configures that plugin.
+- **Honest failure.** A missing plugin, an old DSH, or a stale cookie all collapse to "no data": the column disappears, the button is not rendered, and `—` never means 0.
 
 ### 0.12.0
 

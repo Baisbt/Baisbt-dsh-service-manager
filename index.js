@@ -34,7 +34,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.12.0", commit: "f182ff8", built: "2026-11-09T09:00:28.943Z" };
+const BUILD = { version: "0.13.0", commit: "3347696", built: "2026-11-09T12:20:16.923Z" };
 
 function readSelfVersion() {
   try {
@@ -225,6 +225,101 @@ function readToolIndex(ctx) {
   }
   for (const list of index.values()) list.sort((a, b) => a.name.localeCompare(b.name));
   return index;
+}
+
+/* ------------------------------------------- 上下文成本（可选的 dsh-context 联动） */
+
+const MCP_TOOL_NAME_RE = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/;
+
+/**
+ * 读「MCP 服务器每轮固定占多少 tokens」。
+ *
+ * 数据来自 dsh-context 注册的会话投影 `contextHeaders`——这里**不 import 它、也不改它**，
+ * 只是按 DSH 官方方式读投影注册表/缓存。它没装（或 DSH 版本太旧）时这个 key 不存在，
+ * 本函数返回 `{ available: false }`：页面据此不渲染那一列，而不是报错。
+ *
+ * 该投影的 wire view 形如：
+ *   { headers: [{ seq, time, tools: [{ name, tokens, plugin? }] }] }   // 最多 50 条
+ * tools[].name 与 readToolIndex 用的是同一套 `mcp__<server>__<tool>` 命名，所以 join 是免费的。
+ */
+function readContextCost(ctx) {
+  const projections = ctx?.get?.("sessionProjections") ?? null;
+  const cache = ctx?.get?.("sessionProjectionCache") ?? null;
+  const sessions = ctx?.get?.("sessions") ?? null;
+  const query = ctx?.get?.("sessionQuery") ?? null;
+  if (!projections && !cache) return { available: false, reason: "no-projection-service" };
+
+  const keys = new Set(["contextHeaders"]);
+  const readers = [];
+
+  /* 活会话优先：读的是内存里的当前值，不需要 I/O */
+  try {
+    const live = sessions?.list?.() ?? [];
+    for (const session of Array.isArray(live) ? live : []) {
+      readers.push(() => projections?.snapshot?.(session, keys)?.values);
+    }
+  } catch {
+    /* 拿不到活会话就只走持久缓存 */
+  }
+
+  /* 冷会话：读检查点（零 I/O）。只试最近几条，避免把整份会话列表都折一遍。
+     cachedSnapshot 收的是「会话头」（生命周期身份），不是 id，也不是列表项本身。 */
+  if (readers.length === 0) {
+    try {
+      const metas = query?.listSessions?.() ?? [];
+      for (const meta of Array.isArray(metas) ? metas.slice(-8) : []) {
+        const header = meta?.header ?? meta;
+        readers.push(() => {
+          const block = cache?.cachedSnapshot?.(header, keys);
+          return block?.values ?? block ?? undefined;
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  for (const read of readers) {
+    let values;
+    try {
+      values = read();
+    } catch {
+      continue;
+    }
+    const headers = values?.contextHeaders?.headers;
+    if (!Array.isArray(headers) || headers.length === 0) continue;
+    const header = headers[headers.length - 1] ?? null;
+    const tools = Array.isArray(header?.tools) ? header.tools : [];
+    if (tools.length === 0) continue;
+
+    const perServer = new Map();
+    let total = 0;
+    for (const tool of tools) {
+      const tokens = Number(tool?.tokens);
+      if (!Number.isFinite(tokens) || tokens <= 0) continue;
+      total += tokens;
+      const match = MCP_TOOL_NAME_RE.exec(String(tool?.name ?? ""));
+      if (!match) continue;
+      const entry = perServer.get(match[1]) ?? { serverName: match[1], tools: 0, tokens: 0 };
+      entry.tools += 1;
+      entry.tokens += tokens;
+      perServer.set(match[1], entry);
+    }
+    if (total === 0) continue;
+
+    return {
+      available: true,
+      headerSeq: Number.isFinite(header?.seq) ? header.seq : null,
+      headerTime: Number.isFinite(header?.time) ? header.time : null,
+      toolCount: tools.length,
+      totalToolTokens: total,
+      servers: [...perServer.values()]
+        .map((entry) => ({ ...entry, share: entry.tokens / total }))
+        .sort((a, b) => b.tokens - a.tokens),
+    };
+  }
+
+  return { available: false, reason: "no-context-headers" };
 }
 
 function toView(server) {
@@ -1416,7 +1511,8 @@ export function apply(ctx, config) {
         if (!existsSync(target)) throw new Error(`路径不存在：${target}`);
         const result = await openWithShell(target, kind !== "folder");
         if (!result.ok) throw new Error(result.error);
-        return json({ ok: true, kind, target });
+        /* skipped 只在测试钩子（DSH_SERVICE_MANAGER_NO_OPEN=1）下出现，页面不读它 */
+        return json({ ok: true, kind, target, ...(result.skipped === true ? { skipped: true } : {}) });
       } catch (error) {
         return fail(error);
       }
@@ -1695,6 +1791,24 @@ export function apply(ctx, config) {
         return json({ ok: true, engine, target, language, modelError, counts, results });
       } catch (error) {
         return fail(error);
+      }
+    },
+  });
+
+  /**
+   * 上下文成本（可选联动）。
+   * 拿不到数据是**正常状态**，不是错误：返回 ok:true + available:false，
+   * 页面据此不渲染「每轮 tokens」那一列，也不会把页面变成错误态。
+   */
+  ctx.connection.fetch.register({
+    path: "/api/service-manager/context-cost",
+    methods: ["POST"],
+    requestBody: "buffered",
+    fetch: async () => {
+      try {
+        return json({ ok: true, ...readContextCost(ctx) });
+      } catch (error) {
+        return json({ ok: true, available: false, reason: String(error?.message ?? error) });
       }
     },
   });

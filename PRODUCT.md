@@ -46,6 +46,9 @@ DSH 官方不提供任何 MCP 管理界面——580 个随包产物里，MCP 命
 - 技能没有官方开关，所以「删除」实现为把 `SKILL.md` 改名为 `SKILL.md.disabled-<时间戳>`，改回原名即可恢复；不提供新建与编辑。
 - 安装/删除 MCP 需要用户审批；启停不需要。
 - 版本自述：`GET /api/service-manager/version` 返回「磁盘 / 进程 / 页面」三个读数，页面据此自己判断要不要重启或刷新。Host 进程只在启动时加载一次 `index.js`，所以这是唯一可靠的判据。
+- 可选联动（0.13.0，需要在**另一个插件** dsh-context 装着时才出现）：MCP 表格多一列「每轮 tokens」、工具栏多一个「查看上下文明细」深链、技能卡多一行「近 7 天使用频次」。
+  - 数据只读：宿主读 DSH 的会话投影 `contextHeaders`（它由 dsh-context 注册），页面读它的 `/api/dsh-context/*` 路由或直接点它的面板；**不 import、不配置、不要求安装**。
+  - 约束：不写进 `dependencies`、不改 `dsh.client.inject`；它缺席时这三处一律不渲染，绝不显示 0 或提示安装。
 
 技术约束（硬）：
 

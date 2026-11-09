@@ -5,3 +5,4 @@ docs/preview/frames/
 .DS_Store
 Thumbs.db
 build/
+.acl-reports/

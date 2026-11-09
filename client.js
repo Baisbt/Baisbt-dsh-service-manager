@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
          * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
          * 构建戳打在源码上，编译时原样落到 client.js。
          */
-        const BUILD = { version: "0.12.0", commit: "f182ff8", built: "2026-11-09T09:00:28.943Z" };
+        const BUILD = { version: "0.13.0", commit: "3347696", built: "2026-11-09T12:20:16.923Z" };
         /* ---------------------------------------------------------------- 文案 */
         const PRESETS = [
             {
@@ -203,6 +203,19 @@ window.__ModuleLoader__.load({
                 openFolder: "打开配置目录",
                 externalNote: "由用户手工维护，本页仅展示",
                 savedButRestart: "已写入，但需要重启 DSH 才能生效",
+                colCost: "每轮 tokens",
+                costHint: "最近一次请求里，这台服务器的工具定义占用的上下文（估算）。数据来自 dsh-context。",
+                costMissing: "最近一次请求里没有这台服务器的工具记录（可能已停用或还没连上）。",
+                costTotalHint: "最近一次请求里全部工具定义的合计估算。",
+                openContext: "查看上下文明细",
+                openContextHint: "在 dsh-context 的上下文洞察页里看完整构成",
+                skillUsed7: "近 7 天 {n} 次 · 最近 {when}",
+                skillIdle7: "近 7 天未用 · 最近 {when}",
+                skillUsageHint: "使用次数来自 dsh-context，按技能被加载的次数计，只用于参考。",
+                whenJustNow: "刚刚",
+                whenMinutes: "{n} 分钟前",
+                whenHours: "{n} 小时前",
+                whenDays: "{n} 天前",
             },
             en: {
                 nav: "Services",
@@ -318,6 +331,19 @@ window.__ModuleLoader__.load({
                 openFolder: "Open config folder",
                 externalNote: "Maintained by hand; read-only here",
                 savedButRestart: "Saved, but DSH must restart for this to take effect",
+                colCost: "Tokens / turn",
+                costHint: "Estimated context cost of this server's tool definitions in the latest request. Data from dsh-context.",
+                costMissing: "No tools from this server in the latest request (disabled, or not connected yet).",
+                costTotalHint: "Estimated total of all tool definitions in the latest request.",
+                openContext: "Context details",
+                openContextHint: "Open the full composition in dsh-context's insights page",
+                skillUsed7: "{n}× in 7 days · last {when}",
+                skillIdle7: "Unused in 7 days · last {when}",
+                skillUsageHint: "Usage comes from dsh-context and counts skill loads. For reference only.",
+                whenJustNow: "just now",
+                whenMinutes: "{n} min ago",
+                whenHours: "{n} h ago",
+                whenDays: "{n} d ago",
             },
         };
         const pick = (locale) => {
@@ -415,6 +441,8 @@ window.__ModuleLoader__.load({
             React.createElement("path", { d: "M9.2 4.1 11.6 6.5", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" })));
         const IconTool = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
             React.createElement("path", { d: "M9.6 2.6a3.2 3.2 0 0 0-3.9 4.2l-3 3a1.2 1.2 0 0 0 0 1.7l.9.9a1.2 1.2 0 0 0 1.7 0l3-3a3.2 3.2 0 0 0 4.2-3.9l-2 2-1.5-.5-.5-1.5z", stroke: "currentColor", strokeWidth: 1.3, strokeLinejoin: "round" })));
+        const IconContext = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
+            React.createElement("path", { d: "M3.2 13.2V8.6M6.9 13.2V4.4M10.6 13.2v-3M14.3 13.2V6.2", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })));
         const IconAlert = (p) => (React.createElement(Icon, { size: p.size, style: p.style },
             React.createElement("path", { d: "M8 3.2 14 13H2z", stroke: "currentColor", strokeWidth: 1.4, strokeLinejoin: "round" }),
             React.createElement("path", { d: "M8 6.6v3.2", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round" }),
@@ -476,6 +504,9 @@ window.__ModuleLoader__.load({
   width:100%;box-sizing:border-box;position:relative;padding:12px 10px 12px 32px;background:transparent;border:0;color:inherit;
   font:inherit;text-align:left;cursor:default;transition:background .12s ease}
 .smRow[data-expandable=true]{cursor:pointer}
+/* 有「每轮 tokens」列时多一格 92px；没有这一列时原样不动（未装 dsh-context 的默认形态） */
+.smTable[data-cost=true] .smTHead,.smTable[data-cost=true] .smRow{
+  grid-template-columns:minmax(150px,1.1fr) minmax(180px,1.7fr) 100px 48px 92px 112px}
 .smRow:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .smRowChevron{position:absolute;left:9px;top:50%;margin-top:-6px;color:var(--dsw-alias-label-caption);
   pointer-events:none;transition:transform .16s cubic-bezier(.4,0,.2,1)}
@@ -497,6 +528,10 @@ window.__ModuleLoader__.load({
 .smDot[data-tone=warn]{background:var(--dsw-alias-state-warn-primary)}
 .smTools{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .smTools[data-empty=true]{color:var(--dsw-alias-label-dimmed)}
+.smCost{font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
+.smCost[data-empty=true]{color:var(--dsw-alias-label-dimmed)}
+/* 网格项是外层这一格（Tip 会再套一层 span），窄容器里隐藏要连它一起 */
+.smCostCell{display:block;min-width:0}
 .smActions{display:flex;align-items:center;justify-content:flex-end;gap:1px;flex:0 0 auto}
 /* 展开区用 grid-template-rows 0fr→1fr 过渡：内容高度不用测量，也不会出现 max-height 的抖动 */
 .smDetail{display:grid;grid-template-rows:0fr;overflow:hidden;transition:grid-template-rows .26s cubic-bezier(.32,.72,0,1)}
@@ -581,6 +616,9 @@ window.__ModuleLoader__.load({
 .smCard:hover{border-color:var(--dsw-alias-border-l4);background:var(--dsw-alias-interactive-bg-hover)}
 .smCard:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
 .smCardFoot{position:absolute;right:10px;bottom:8px;display:flex;align-items:center;gap:6px}
+/* 技能被用过几次：只在使用过 / 有记录时出现，没数据就整行不渲染 */
+.smCardUsage{display:block;font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smCardDelete{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:var(--dsw-radius-sm,8px);
   background:transparent;color:var(--dsw-alias-label-caption);cursor:pointer;opacity:0;transition:opacity .12s ease,color .12s ease,background .12s ease}
 .smCard:hover .smCardDelete,.smCard:focus-within .smCardDelete{opacity:1}
@@ -718,6 +756,8 @@ window.__ModuleLoader__.load({
 @container smtable (max-width:720px){
   .smTHead{display:none}
   .smRow{grid-template-columns:1fr auto;grid-template-areas:"name actions" "endpoint endpoint" "status tools";row-gap:8px;align-items:start}
+  /* 窄容器里成本列无处安放：整格隐藏，信息仍可在洞察页看到 */
+  .smTable[data-cost=true] .smCostCell{display:none}
   .smSkRow{grid-template-columns:1fr auto;align-items:start}
   .smRowChevron{top:14px;margin-top:0}
   .smName{grid-area:name}.smEndpoint{grid-area:endpoint}.smStatus{grid-area:status}.smTools{grid-area:tools;text-align:right}.smActions{grid-area:actions}
@@ -742,6 +782,124 @@ window.__ModuleLoader__.load({
             if (payload && payload.ok === false)
                 throw new Error(payload.error || "请求失败");
             return payload;
+        };
+        /* ------------------------------------------- 可选的 dsh-context 联动 */
+        /**
+         * 这一块的铁律：**失败即隐身**。
+         *  - 探测：它没装 / 版本太旧 / cookie 过期，一律落到 absent，绝不冒泡成页面错误；
+         *  - 读数：拿不到就是没有数据，不显示 0、不显示假数字；
+         *  - 深链：面板没注册就不渲染入口。
+         * 探测与读技能用量直接 fetch（404 是"没装"的证据，不能被 request() 当异常吞掉）；
+         * 读成本走自己的路由，用 request() 就够了。
+         */
+        const CONTEXT_PANEL_ID = "dsh-context";
+        const contextPost = (url, body = {}) => fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body ?? {}),
+            credentials: "same-origin",
+        });
+        let contextProbePromise = null;
+        /** 只在页面生命周期里探一次；返回 absent 时后续读取全部短路。 */
+        const probeContext = () => {
+            if (contextProbePromise)
+                return contextProbePromise;
+            contextProbePromise = (async () => {
+                /* 0.83+ 有便宜的 /version；0.82.x 没有会 404，继续往下试 */
+                try {
+                    const res = await contextPost("/api/dsh-context/version");
+                    if (res.ok) {
+                        const payload = await res.json().catch(() => null);
+                        if (payload?.ok === true)
+                            return "ok";
+                    }
+                }
+                catch {
+                    /* 落到 /snapshot */
+                }
+                try {
+                    const res = await contextPost("/api/dsh-context/snapshot");
+                    if (!res.ok)
+                        return "absent";
+                    const payload = await res.json().catch(() => null);
+                    if (payload?.ok !== true)
+                        return "absent";
+                    const values = Object.values(payload.value ?? {});
+                    /* 装是装了，但它自己判断 DSH 版本太旧时给的是占位值 */
+                    return values.some((value) => value?.contextTimeline?.unsupported) ? "unsupported" : "ok";
+                }
+                catch {
+                    return "absent";
+                }
+            })();
+            return contextProbePromise;
+        };
+        /** 近 7 天每个技能被加载的次数与最近时间；只读聚合数字，不碰正文。 */
+        const readSkillUsage = async () => {
+            try {
+                if ((await probeContext()) !== "ok")
+                    return null;
+                const res = await contextPost("/api/dsh-context/snapshot");
+                if (!res.ok)
+                    return null;
+                const payload = await res.json().catch(() => null);
+                if (payload?.ok !== true)
+                    return null;
+                const since = Date.now() - 7 * 24 * 3600 * 1000;
+                const out = {};
+                for (const session of Object.values(payload.value ?? {})) {
+                    const days = session?.contextActivity?.days ?? {};
+                    for (const [day, entry] of Object.entries(days)) {
+                        const at = Date.parse(`${day}T00:00:00`);
+                        if (!Number.isFinite(at) || at < since)
+                            continue;
+                        for (const [name, tally] of Object.entries(entry?.skills ?? {})) {
+                            const n = Number(tally?.n) || 0;
+                            const last = Number(tally?.last) || 0;
+                            const prev = out[name] ?? { n: 0, last: 0 };
+                            out[name] = { n: prev.n + n, last: Math.max(prev.last, last) };
+                        }
+                    }
+                }
+                return out;
+            }
+            catch {
+                return null;
+            }
+        };
+        /** 宿主侧聚合并返回；宿主说 available:false 时返回 null（= 不渲染这一列）。 */
+        const readContextCost = async () => {
+            try {
+                const payload = await request("/api/service-manager/context-cost", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: "{}",
+                });
+                if (payload?.available !== true)
+                    return null;
+                return payload;
+            }
+            catch {
+                return null;
+            }
+        };
+        /** 由 apply() 赋值：面板在不在、怎么跳过去。默认「不在」，缺 dsh-context 时按钮不出现。 */
+        let contextPanelProbe = () => false;
+        let openContextPanel = () => { };
+        const formatTokens = (value) => Number.isFinite(value) ? String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—";
+        /** 相对时间；`last` 可能是秒或毫秒，按量级判断一次。 */
+        const relativeWhen = (t, ms) => {
+            const value = ms > 0 && ms < 1e11 ? ms * 1000 : ms;
+            if (!Number.isFinite(value) || value <= 0)
+                return "";
+            const diff = Math.max(0, Date.now() - value);
+            if (diff < 60000)
+                return t("whenJustNow");
+            if (diff < 3600000)
+                return t("whenMinutes").replace("{n}", String(Math.floor(diff / 60000)));
+            if (diff < 86400000)
+                return t("whenHours").replace("{n}", String(Math.floor(diff / 3600000)));
+            return t("whenDays").replace("{n}", String(Math.floor(diff / 86400000)));
         };
         /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
         const shortClock = (iso) => {
@@ -1040,7 +1198,7 @@ window.__ModuleLoader__.load({
                     React.createElement("span", { className: "smToolRowDesc", "data-empty": !text }, text || t("toolNoDesc"))),
                 React.createElement(TransTag, { t: t, entry: entry, busy: busy })));
         }
-        function ServerRow({ server, t, onToggle, onRemove, onEdit, onOpen, busy, open, entries, pending, onOpenTool, }) {
+        function ServerRow({ server, t, onToggle, onRemove, onEdit, onOpen, busy, open, entries, pending, showCost, cost, onOpenTool, }) {
             const tools = server.tools ?? [];
             const count = server.toolCount;
             /* 详情区一旦展开过就留在树上：收起时高度归零并 inert。
@@ -1068,6 +1226,9 @@ window.__ModuleLoader__.load({
                             React.createElement("span", { className: "smEndpointText smMono" }, endpointOf(server)))),
                     React.createElement(StatusBadge, { server: server, t: t }),
                     React.createElement("div", { className: "smTools", "data-empty": count == null }, count == null ? "–" : String(count)),
+                    showCost ? (React.createElement("span", { className: "smCostCell" },
+                        React.createElement(Tip, { label: cost ? t("costHint") : t("costMissing") },
+                            React.createElement("span", { className: "smCost", "data-empty": !cost }, cost ? formatTokens(cost.tokens) : "—")))) : null,
                     React.createElement("div", { className: "smActions", onClick: (event) => event.stopPropagation() },
                         React.createElement(Tip, { label: `${t("edit")} ${server.serverName}` },
                             React.createElement("button", { type: "button", className: "smIconBtn", "aria-label": `${t("edit")} ${server.serverName}`, onClick: () => onEdit(server) },
@@ -1338,6 +1499,14 @@ window.__ModuleLoader__.load({
                     return servers;
                 return servers.filter((s) => s.serverName.toLowerCase().includes(q) || (s.endpoint ?? "").toLowerCase().includes(q));
             }, [servers, query]);
+            /* 每轮成本：宿主聚合好的读数；没有 dsh-context 时是 null，表格就不长这一列 */
+            const cost = state.context?.cost ?? null;
+            const costByServer = useMemo(() => {
+                const map = {};
+                for (const row of cost?.servers ?? [])
+                    map[row.serverName] = row;
+                return map;
+            }, [cost]);
             const targetRef = useRef(null);
             useEffect(() => {
                 targetRef.current = target;
@@ -1597,6 +1766,10 @@ window.__ModuleLoader__.load({
                             React.createElement("select", { className: "smSelect", value: selectedKey, disabled: !modelOptions.length, "aria-label": t("translateModel"), onChange: (event) => changeModel(event.target.value) },
                                 selectedMissing || !modelOptions.length ? (React.createElement("option", { value: selectedKey }, target ? `${target.model} · ${target.provider}` : t("noModel"))) : null,
                                 modelOptions.map((option) => (React.createElement("option", { key: option.key, value: option.key }, option.label)))))) : null,
+                        contextPanelProbe() ? (React.createElement(Tip, { label: t("openContextHint") },
+                            React.createElement("button", { type: "button", className: "smBtn", onClick: () => openContextPanel() },
+                                React.createElement(IconContext, { size: 14 }),
+                                t("openContext")))) : null,
                         React.createElement("button", { type: "button", className: "smBtn smBtnPrimary", onClick: () => setEditing({ mode: "new" }) },
                             React.createElement(IconPlus, { size: 14 }),
                             t("add"))),
@@ -1606,14 +1779,15 @@ window.__ModuleLoader__.load({
                         React.createElement("i", { className: "smNoticeDot" }),
                         React.createElement(Tip, { label: notice },
                             React.createElement("span", { className: "smNoticeText" }, t("toolTransFailed"))))) : null),
-                React.createElement("div", { className: "smTable" },
+                React.createElement("div", { className: "smTable", "data-cost": Boolean(cost?.available) },
                     React.createElement("div", { className: "smTHead" },
                         React.createElement("span", null, t("colName")),
                         React.createElement("span", null, t("colEndpoint")),
                         React.createElement("span", null, t("colStatus")),
                         React.createElement("span", null, t("colTools")),
+                        cost?.available ? React.createElement("span", null, t("colCost")) : null,
                         React.createElement("span", null)),
-                    filtered.map((server) => (React.createElement(ServerRow, { key: server.id, server: server, t: t, busy: busyId === server.id, open: openId === server.id, entries: entries, pending: pending, onOpen: (id) => setOpenId((prev) => (prev === id ? null : id)), onToggle: toggle, onRemove: setPendingRemove, onEdit: (target2) => setEditing({ mode: "edit", server: target2 }), onOpenTool: (serverRef, tool) => setActiveTool({ server: serverRef, tool }) })))),
+                    filtered.map((server) => (React.createElement(ServerRow, { key: server.id, server: server, t: t, busy: busyId === server.id, open: openId === server.id, entries: entries, pending: pending, showCost: Boolean(cost?.available), cost: costByServer[server.serverName] ?? null, onOpen: (id) => setOpenId((prev) => (prev === id ? null : id)), onToggle: toggle, onRemove: setPendingRemove, onEdit: (target2) => setEditing({ mode: "edit", server: target2 }), onOpenTool: (serverRef, tool) => setActiveTool({ server: serverRef, tool }) })))),
                 filtered.length ? null : (React.createElement("div", { className: "smEmpty", style: { padding: "40px 24px" } },
                     React.createElement("p", { className: "smEmptyBody" }, t("searchNoResult")))),
                 editing ? (React.createElement(ServerForm, { t: t, initial: editing.server ?? null, onClose: () => setEditing(null), onSaved: () => {
@@ -1897,6 +2071,13 @@ window.__ModuleLoader__.load({
                 const translated = Boolean(entry?.text) && entry.engine !== "source";
                 const showingTranslation = translated && view === "translated";
                 const fallback = showingTranslation ? entry?.text : raw || "—";
+                /* 使用次数只在「近 7 天有记录」时出现；没有记录（含没装 dsh-context）就整行不渲染 */
+                const usage = state.context?.usage?.[skill.name];
+                const usageText = usage && usage.n > 0
+                    ? t("skillUsed7").replace("{n}", String(usage.n)).replace("{when}", relativeWhen(t, usage.last))
+                    : usage && usage.last > 0
+                        ? t("skillIdle7").replace("{when}", relativeWhen(t, usage.last))
+                        : "";
                 return (React.createElement("div", { key: skill.path ?? skill.name, className: "smCard", role: "button", tabIndex: 0, onClick: () => setActiveSkill(skill), onKeyDown: (event) => {
                         if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
@@ -1907,6 +2088,8 @@ window.__ModuleLoader__.load({
                         React.createElement("span", { className: "smCardName" }, skill.name),
                         skill.modelInvocable ? null : React.createElement("span", { className: "smBadge" }, t("skillHidden"))),
                     React.createElement("div", { className: showingTranslation ? "smCardDesc smTranslated" : "smCardDesc" }, fallback),
+                    usageText ? (React.createElement(Tip, { label: t("skillUsageHint") },
+                        React.createElement("span", { className: "smCardUsage" }, usageText))) : null,
                     React.createElement("div", { className: "smCardFoot" },
                         React.createElement("span", { className: "smHint" }, skill.scope === "user" ? t("skillScopeUser") : skill.scope),
                         React.createElement(TransTag, { t: t, entry: entry, busy: itemBusy }),
@@ -2066,6 +2249,27 @@ window.__ModuleLoader__.load({
                         /* ignore */
                     }
                 };
+                /**
+                 * 深链入口只在「dsh-context 的 main 面板真的注册着」时出现。
+                 * 它可能没装，也可能装了但用户在偏好里把洞察页入口关了——两种都当作没有入口。
+                 */
+                contextPanelProbe = () => {
+                    try {
+                        const entries = ctx.slots?.entries?.("main") ?? [];
+                        return entries.some((entry) => entry?.options?.key === CONTEXT_PANEL_ID);
+                    }
+                    catch {
+                        return false;
+                    }
+                };
+                openContextPanel = () => {
+                    try {
+                        ctx.get("layout")?.selectPanel?.(CONTEXT_PANEL_ID);
+                    }
+                    catch {
+                        /* 面板刚被注销：静默回退，不报错、不提示安装 */
+                    }
+                };
                 /* 页面状态提升到 apply 作用域，切走再切回不丢 */
                 let store = {
                     loading: false,
@@ -2101,10 +2305,17 @@ window.__ModuleLoader__.load({
                         if (scope === "mcp") {
                             const payload = await request("/api/service-manager/mcp");
                             set({ servers: payload.servers ?? [] });
+                            /* 成本列是增强项：读不到就当作没有这一列，绝不影响上面的列表 */
+                            void readContextCost().then((cost) => set({ context: { ...(store.context ?? { probe: "unknown" }), cost } }));
                         }
                         if (scope === "skill") {
                             const payload = await request("/api/service-manager/skills");
                             set({ skills: payload.skills ?? [] });
+                            void (async () => {
+                                const probe = await probeContext();
+                                const usage = probe === "ok" ? (await readSkillUsage()) ?? undefined : undefined;
+                                set({ context: { ...(store.context ?? { probe: "unknown" }), probe, usage } });
+                            })();
                         }
                     }
                     catch (error) {

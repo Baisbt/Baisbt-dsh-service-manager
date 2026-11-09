@@ -96,6 +96,7 @@ async function boot(dir, profile, options = {}) {
       "/api/service-manager/open",
       "/api/service-manager/paths",
       "/api/service-manager/version",
+      "/api/service-manager/context-cost",
     ];
     const missing = expected.filter((route) => !routes.has(route));
     check(`${expected.length} 条路由全部注册`, missing.length === 0, missing.join(","));
@@ -117,6 +118,11 @@ async function boot(dir, profile, options = {}) {
 
     const mcp = await call("/api/service-manager/mcp");
     check("/mcp 返回空列表", Array.isArray(mcp.servers) && mcp.servers.length === 0);
+
+    /* 没装 dsh-context：这是正常状态，不是错误——只有 available:false，没有 4xx */
+    const noContext = await call("/api/service-manager/context-cost", { method: "POST", body: "{}" });
+    check("没有 dsh-context 时 /context-cost 不报错", noContext.ok === true, JSON.stringify(noContext));
+    check("没有 dsh-context 时 /context-cost 说不可用", noContext.available === false, JSON.stringify(noContext));
 
     /* 统计被移除后不该再写 stats.json；老文件留在磁盘上由用户自己处理，Host 不碰它 */
     const statsFileWritten = await readFile(path.join(profile, ".dsh-service-manager", "stats.json"), "utf8").then(
@@ -169,39 +175,46 @@ async function boot(dir, profile, options = {}) {
 {
   const profile = await temp("sm-profile-");
   const previous = process.env.DSH_SERVICE_MANAGER_NO_OPEN;
-  process.env.DSH_SERVICE_MANAGER_NO_OPEN = "1"; /* 别真的弹资源管理器 */
-  const { call } = await boot(ROOT, profile);
-  process.env.DSH_SERVICE_MANAGER_NO_OPEN = previous;
+  /* 这一块会真的走 openWithShell：开关必须覆盖到所有调用，最后在 finally 里还原。
+     历史 bug：曾经在 boot() 之后立刻还原，导致每次跑测试都真的弹出资源管理器。 */
+  process.env.DSH_SERVICE_MANAGER_NO_OPEN = "1";
+  try {
+    const { call } = await boot(ROOT, profile);
 
-  const post = (body) =>
-    call("/api/service-manager/open", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const post = (body) =>
+      call("/api/service-manager/open", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-  const unknown = await post({ kind: "skill", name: "../../windows/system32" });
-  check("未知技能名被拒绝（不打开任意路径）", unknown.ok === false, unknown.error);
-  check("拒绝理由是找不到技能", String(unknown.error ?? "").includes("找不到技能"), String(unknown.error));
+    const unknown = await post({ kind: "skill", name: "../../windows/system32" });
+    check("未知技能名被拒绝（不打开任意路径）", unknown.ok === false, unknown.error);
+    check("拒绝理由是找不到技能", String(unknown.error ?? "").includes("找不到技能"), String(unknown.error));
 
-  const empty = await post({ kind: "skill" });
-  check("缺 name 也被拒绝", empty.ok === false);
+    const empty = await post({ kind: "skill" });
+    check("缺 name 也被拒绝", empty.ok === false);
 
-  /* 真实技能：走 Host 自己的扫描结果，客户端从不传路径 */
-  const list = await call("/api/service-manager/skills");
-  const first = Array.isArray(list.skills) ? list.skills[0] : null;
-  if (first) {
-    const opened = await post({ kind: "skill", name: first.name });
-    check("按技能名能定位到文件", opened.ok === true && opened.target === first.path, opened.error);
-    check("返回的路径就是扫描出来的那个", opened.target === first.path);
-  } else {
-    check("（本机没有技能，跳过定位成功用例）", true);
+    /* 真实技能：走 Host 自己的扫描结果，客户端从不传路径 */
+    const list = await call("/api/service-manager/skills");
+    const first = Array.isArray(list.skills) ? list.skills[0] : null;
+    if (first) {
+      const opened = await post({ kind: "skill", name: first.name });
+      check("按技能名能定位到文件", opened.ok === true && opened.target === first.path, opened.error);
+      check("返回的路径就是扫描出来的那个", opened.target === first.path);
+      check("测试钩子生效：没有真的打开资源管理器", opened.skipped === true, JSON.stringify(opened));
+    } else {
+      check("（本机没有技能，跳过定位成功用例）", true);
+    }
+
+    /* 打开配置文件那条老路子不能被改坏 */
+    await writeFile(path.join(profile, "mcp-servers.yml"), "[]", "utf8");
+    const file = await post({ kind: "file" });
+    check("打开配置文件仍然可用", file.ok === true && file.kind === "file", file.error);
+  } finally {
+    if (previous === undefined) delete process.env.DSH_SERVICE_MANAGER_NO_OPEN;
+    else process.env.DSH_SERVICE_MANAGER_NO_OPEN = previous;
   }
-
-  /* 打开配置文件那条老路子不能被改坏 */
-  await writeFile(path.join(profile, "mcp-servers.yml"), "[]", "utf8");
-  const file = await post({ kind: "file" });
-  check("打开配置文件仍然可用", file.ok === true && file.kind === "file", file.error);
 }
 
 /* ------------- 7. 翻译：目标语言跟随界面语言、同语言跳过、缓存按语言分槽 ------------- */
@@ -313,12 +326,77 @@ async function boot(dir, profile, options = {}) {
   check("界面语言写进了 settings.json", settings.translateLanguage === "en", String(settings.translateLanguage));
 }
 
+/* ---------------------------------------------------------- 5. 上下文成本（可选联动） */
+
+{
+  const profile = await temp("sm-profile-");
+  /* 假投影：形状照 dsh-context 的 contextHeaders wire view 抄 */
+  const tools = [
+    { name: "mcp__tavily__tavily_search", tokens: 1209 },
+    { name: "mcp__tavily__tavily_extract", tokens: 367 },
+    { name: "mcp__github__create_issue", tokens: 500 },
+    { name: "pwsh", tokens: 400 },
+  ];
+  const session = { id: "s1" };
+  const { call } = await boot(ROOT, profile, {
+    get: (name) => {
+      if (name === "sessions") return { list: () => [session], get: () => session };
+      if (name === "sessionProjections") {
+        return { snapshot: () => ({ values: { contextHeaders: { headers: [{ seq: 7, time: 1, tools }] } } }) };
+      }
+      return null;
+    },
+  });
+
+  const cost = await call("/api/service-manager/context-cost", { method: "POST", body: "{}" });
+  check("/context-cost 读到投影后可用", cost.available === true, JSON.stringify(cost));
+  check("/context-cost 只统计 mcp__ 工具（两台服务器）", cost.servers?.length === 2, JSON.stringify(cost.servers));
+  check(
+    "/context-cost 按服务器聚合 tavily",
+    cost.servers?.find((row) => row.serverName === "tavily")?.tokens === 1576,
+    JSON.stringify(cost.servers)
+  );
+  check("/context-cost 合计含全部工具定义", cost.totalToolTokens === 2476, String(cost.totalToolTokens));
+  check(
+    "/context-cost 占比按合计算",
+    Math.abs((cost.servers?.find((row) => row.serverName === "tavily")?.share ?? 0) - 1576 / 2476) < 1e-9,
+    String(cost.servers?.find((row) => row.serverName === "tavily")?.share)
+  );
+  check("/context-cost 带出请求头序号", cost.headerSeq === 7, String(cost.headerSeq));
+}
+
+/* 没有活会话时读检查点：cachedSnapshot 收的是「会话头」，不是 id，也不是列表项本身 */
+{
+  const profile = await temp("sm-profile-");
+  const tools = [{ name: "mcp__tavily__tavily_search", tokens: 1209 }];
+  let seenHeader = null;
+  const { call } = await boot(ROOT, profile, {
+    get: (name) => {
+      if (name === "sessions") return { list: () => [] };
+      if (name === "sessionQuery") return { listSessions: () => [{ header: { id: "s9", createdAt: 1 } }] };
+      if (name === "sessionProjectionCache") {
+        return {
+          cachedSnapshot: (header) => {
+            seenHeader = header;
+            return { values: { contextHeaders: { headers: [{ seq: 3, time: 2, tools }] } } };
+          },
+        };
+      }
+      if (name === "sessionProjections") return { snapshot: () => undefined };
+      return null;
+    },
+  });
+  const cost = await call("/api/service-manager/context-cost", { method: "POST", body: "{}" });
+  check("/context-cost 冷会话走缓存", cost.available === true, JSON.stringify(cost));
+  check("/context-cost 缓存读到的是会话头（带 id）", seenHeader?.id === "s9", JSON.stringify(seenHeader));
+}
+
 for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
 
 let failures = 0;
 for (const [label, ok, detail] of checks) {
   if (!ok) failures += 1;
-  if (!ok || /apply|stale|unknown|路由|stats|翻译|缓存|语言/.test(label)) {
+  if (!ok || /apply|stale|unknown|路由|stats|翻译|缓存|语言|上下文|context-cost/.test(label)) {
     console.log(`${ok ? "✔" : "✘"} ${label}${!ok && detail ? ` — ${detail}` : ""}`);
   }
 }

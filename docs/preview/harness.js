@@ -105,14 +105,14 @@
     stale: scenario === "stale",
     unknown: scenario === "unknown",
     running: {
-      version: scenario === "stale" ? "0.9.1" : "0.12.0",
+      version: scenario === "stale" ? "0.9.1" : "0.13.0",
       startedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString(),
       pid: 4321,
       node: "24.19.0",
     },
-    disk: scenario === "unknown" ? null : { version: "0.12.0", mtime: new Date().toISOString() },
+    disk: scenario === "unknown" ? null : { version: "0.13.0", mtime: new Date().toISOString() },
     /* page 场景：故意给一个和 client.js 构建戳不同的 commit */
-    build: { version: "0.12.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
+    build: { version: "0.13.0", commit: scenario === "page" ? "deadbee" : "", built: "" },
     dir: "C:/profile/node_modules/dsh-service-manager",
     profileDir: "C:/profile",
   };
@@ -131,6 +131,42 @@
     }
     if (path === "/api/service-manager/skills" && method === "GET") {
       return json({ ok: true, skills });
+    }
+    /* 可选联动：预览里假装 dsh-context 装着，好让新列与新行有东西可看 */
+    if (path === "/api/service-manager/context-cost" && method === "POST") {
+      return json({
+        ok: true,
+        available: true,
+        headerSeq: 812,
+        toolCount: 41,
+        totalToolTokens: 19717,
+        servers: [{ serverName: "tavily", tools: 5, tokens: 2801, share: 2801 / 19717 }],
+      });
+    }
+    if (path === "/api/dsh-context/version" && method === "POST") {
+      return json({ ok: true, value: { ready: true, failed: false, checkedAt: Date.now(), current: "0.82.1" } });
+    }
+    if (path === "/api/dsh-context/snapshot" && method === "POST") {
+      const day = new Date().toISOString().slice(0, 10);
+      return json({
+        ok: true,
+        value: {
+          "session-demo": {
+            contextActivity: {
+              days: {
+                [day]: {
+                  tokens: 12345,
+                  requests: 4,
+                  skills: {
+                    "banner-design": { n: 4, last: Date.now() - 2 * 3600 * 1000 },
+                    brand: { n: 1, last: Date.now() - 26 * 3600 * 1000 },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
     }
     if (path === "/api/service-manager/version" && method === "GET") {
       /* missing 场景：模拟「正在跑的 Host 还没有这条路由」，返回 404 */
@@ -191,6 +227,8 @@
         if (descriptor?.name === "main") Main = component;
         return () => {};
       },
+      /* 假装 dsh-context 的洞察页面板注册着：预览里能看到深链按钮 */
+      entries: (name) => (name === "main" ? [{ options: { key: "dsh-context" } }] : []),
     },
     /* 宿主 locale 服务的真实形状是 getLocale().active；'current' 那个字段不存在 */
     get: (name) =>

@@ -32,6 +32,8 @@ let activeSkillOverride = null;
 let expandServerId = null;
 let openToolOverride = null;
 let nullSeen = 0;
+/* 模拟 ctx.slots.entries("main")：为空 = 没装 dsh-context（或它把入口关了） */
+let mainPanels = [];
 
 const useState = (initial) => {
   if (initial === "mcp") return [forceTab, noop];
@@ -100,6 +102,9 @@ const ctx = {
       if (descriptor?.name === "main") mainComponent = component;
       return noop;
     },
+    /* 真宿主：main 槽位的注册表；深链入口只在这里能找到 dsh-context 时出现 */
+    entries: (name) =>
+      name === "main" ? mainPanels.map((key) => ({ options: { key } })) : [],
   },
   /* 真实宿主提供 getLocale().active；navigator.language 是 Electron 的 --lang，不能作为语言来源 */
   get: (name) =>
@@ -301,6 +306,66 @@ const cases = [
     version: { ok: true, stale: false, unknown: true, running: { version: "0.8.0" }, disk: null, build: {} },
     expectText: "无法判断是否需要重启",
   },
+  /* 可选联动：装了 dsh-context → 多一列 + 一个深链入口；没装 → 两者都不出现 */
+  {
+    label: "mcp (每轮 tokens 列)",
+    tab: "mcp",
+    context: {
+      probe: "ok",
+      cost: {
+        available: true,
+        headerSeq: 7,
+        toolCount: 4,
+        totalToolTokens: 2476,
+        servers: [{ serverName: "tavily", tools: 2, tokens: 1576, share: 1576 / 2476 }],
+      },
+    },
+    expectTexts: ["每轮 tokens", "1,576"],
+  },
+  {
+    label: "mcp (没有 dsh-context：不长成本列)",
+    tab: "mcp",
+    context: { probe: "absent", cost: null },
+    rejectTexts: ["每轮 tokens"],
+  },
+  {
+    label: "mcp (en: 成本列表头随语言)",
+    tab: "mcp",
+    locale: "en",
+    context: {
+      probe: "ok",
+      cost: {
+        available: true,
+        totalToolTokens: 2476,
+        servers: [{ serverName: "tavily", tools: 2, tokens: 1576, share: 1576 / 2476 }],
+      },
+    },
+    expectTexts: ["Tokens / turn", "1,576"],
+  },
+  {
+    label: "mcp (深链入口：面板在时有)",
+    tab: "mcp",
+    panels: ["dsh-context"],
+    expectText: "查看上下文明细",
+  },
+  {
+    label: "mcp (深链入口：面板不在时没有)",
+    tab: "mcp",
+    panels: [],
+    rejectText: "查看上下文明细",
+  },
+  {
+    label: "skill (近 7 天使用频次)",
+    tab: "skill",
+    context: { probe: "ok", usage: { "banner-design": { n: 3, last: Date.now() - 2 * 3600_000 } } },
+    expectTexts: ["近 7 天 3 次", "2 小时前"],
+  },
+  {
+    label: "skill (没有 dsh-context：不显示使用频次)",
+    tab: "skill",
+    context: { probe: "absent" },
+    rejectTexts: ["近 7 天", "最近"],
+  },
 ];
 
 let failures = 0;
@@ -310,7 +375,9 @@ for (const item of cases) {
   store = {
     ...store,
     version: item.version ?? null,
+    context: item.context ?? undefined,
   };
+  mainPanels = item.panels ?? [];
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
