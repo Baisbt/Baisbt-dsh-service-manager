@@ -306,10 +306,6 @@ That preview environment is also the fastest way to iterate on the UI without in
 - **The cache is stored per target language** (format v3). Existing Chinese translations are migrated into the `zh` slot, so upgrading does not re-translate anything.
 - The 75-second batch budget is now a hard limit: each request's timeout is the smaller of 45 s and what is left of the budget.
 
-### 0.10.0
-
-- **Removed invocation stats.** The stats page and all of its collection code are gone, leaving two pages: MCP servers and skills. The old data file `<profile>/.dsh-service-manager/stats.json` is now an orphan and can be deleted by hand — the plugin no longer reads or writes it.
-
 ## Contributing
 
 Issues and pull requests are welcome. Three things that make a change easy to accept:
