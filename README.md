@@ -25,7 +25,7 @@ This plugin adds the missing page. It **never edits your DSH configuration files
 
 - [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install)
 - [Usage](#usage) · [What it writes](#what-it-writes) · [Security boundaries](#security-boundaries)
-- [How it works](#how-it-works) · [Compatibility](#compatibility) · [FAQ](#faq)
+- [How it works](#how-it-works) · [Optional: dsh-context integration](#optional-dsh-context-integration) · [Compatibility](#compatibility) · [FAQ](#faq)
 - [Development](#development) · [Changelog](#changelog) · [Contributing](#contributing) · [License](#license)
 
 ## Features
@@ -181,12 +181,34 @@ The page reads and writes through routes registered with `ctx.connection.fetch.r
 
 Translation goes through `ctx.get("llm").stream(...)` with the model you picked, and is written back to `translations.json` so it survives restarts.
 
+## Optional: dsh-context integration
+
+Three readings on this page come from [`dsh-context`](https://github.com/bowenliang123/dsh-context), an independent plugin that records what your sessions actually carry. **It is optional: with it installed the readings appear, without it nothing changes.**
+
+| Where | With dsh-context installed |
+|---|---|
+| MCP table | a **Tokens / turn** column — how many tokens each server's tool definitions take in the latest request (estimated) |
+| MCP toolbar | **Context details** — opens dsh-context's context insights page |
+| Skill cards | how many times the skill was loaded in the last 7 days, and when |
+
+How the connection works — **one direction only**:
+
+- The Host reads two **session projections** registered by dsh-context (`contextHeaders`, `contextActivity`) through DSH's own projection service. It never imports, patches or configures that plugin.
+- The page only talks to this plugin's own routes: `POST /api/service-manager/context-cost` and `POST /api/service-manager/context-usage`. It does not call dsh-context's HTTP endpoints.
+- `package.json` has **no** dependency on dsh-context and `dsh.client.inject` is untouched. If it is missing, too old, or has nothing to report, the readings are simply **not rendered** — no zeros, no "please install" prompt, no error state.
+- **Context details** only appears when dsh-context's panel is actually registered (that panel can be hidden in its own preferences).
+
+> Only aggregate numbers are read: token estimates, load counts and timestamps — never prompts, file paths or command text.
+
+Verified against dsh-context `0.82.x` and `0.83.x`; both projections are unchanged across those releases.
+
 ## Compatibility
 
 - DSH `>= 0.2.0-rc.1 < 0.3.0`
 - Windows / macOS / Linux desktop
 - Both themes, automatically
 - TypeScript + JSX client, one `pnpm build` step, **no runtime dependencies**
+- Optional: dsh-context `0.82.x` – `0.83.x` — without it the page behaves exactly as before
 
 ## FAQ
 
@@ -291,7 +313,7 @@ That preview environment is also the fastest way to iterate on the UI without in
 ### 0.13.0
 
 - **Optional integration with [`dsh-context`](https://github.com/bowenliang123/dsh-context).** When it is installed, the MCP table gains a **Tokens / turn** column — each server's tool definitions in the latest request, estimated — and a **Context details** button that opens its insights page; skill cards show how often each skill was loaded in the last 7 days. Nothing is required: without dsh-context the page is exactly as before, and nothing ever asks you to install it.
-- **Read-only and one-way.** The page reads dsh-context's own `contextHeaders` / `contextActivity` projections (through the Host) or its `/api/dsh-context/*` routes. It never imports, patches or configures that plugin.
+- **Read-only and one-way.** The page reads dsh-context's own `contextHeaders` / `contextActivity` projections through the Host. It never imports, patches or configures that plugin.
 - **Honest failure.** A missing plugin, an old DSH, or a stale cookie all collapse to "no data": the column disappears, the button is not rendered, and `—` never means 0.
 
 ### 0.12.0

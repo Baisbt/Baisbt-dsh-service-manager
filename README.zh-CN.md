@@ -25,7 +25,7 @@ DSH 官方没有 MCP 管理界面——想加一台服务器只能手写 YAML，
 
 - [功能](#功能) · [截图](#截图) · [环境要求](#环境要求) · [安装](#安装)
 - [使用](#使用) · [它会写哪些文件](#它会写哪些文件) · [安全边界](#安全边界)
-- [工作原理](#工作原理) · [兼容性](#兼容性) · [常见问题](#常见问题)
+- [工作原理](#工作原理) · [可选联动：dsh-context](#可选联动dsh-context) · [兼容性](#兼容性) · [常见问题](#常见问题)
 - [开发](#开发) · [更新记录](#更新记录) · [参与贡献](#参与贡献) · [License](#license)
 
 ## 功能
@@ -181,12 +181,34 @@ cordis.patch.yml (插件自带)
 
 翻译走 `ctx.get("llm").stream(...)`，用你选的模型，结果写回 `translations.json`，重启后仍然有效。
 
+## 可选联动：dsh-context
+
+页面上的三处读数来自另一个独立插件 [`dsh-context`](https://github.com/bowenliang123/dsh-context)。**它是可选的：装了才出现，不装一切照旧。**
+
+| 位置 | 装了 dsh-context 时 |
+|---|---|
+| MCP 表格 | 多一列 **每轮 tokens**：最近一次请求里这台服务器的工具定义占用（估算） |
+| MCP 工具栏 | **查看上下文明细**：跳到它的上下文洞察页 |
+| 技能卡片 | 近 7 天被加载的次数与最近时间 |
+
+连接方式 —— **严格单向**：
+
+- 宿主通过 DSH 官方的投影服务，读它注册的两个会话投影（`contextHeaders`、`contextActivity`）；不 import、不打补丁、不改它的配置。
+- 页面只调本插件自己的路由（`POST /api/service-manager/context-cost`、`POST /api/service-manager/context-usage`），不请求 dsh-context 的 HTTP 接口。
+- `package.json` **没有**它的依赖，`dsh.client.inject` 也没动。它没装、版本太旧、或暂时没有数据时，这几处读数**不渲染**——不显示 0、不弹"请安装"、不把页面变成错误态。
+- **查看上下文明细** 只在它的面板真的注册着时出现（那个面板可以在它自己的偏好里关掉）。
+
+> 只读聚合数字：token 估算、加载次数与时间，不碰提示词、文件路径或命令文本。
+
+已在 dsh-context `0.82.x` / `0.83.x` 上验证；这两个投影在这两个版本之间没有变化。
+
 ## 兼容性
 
 - DSH `>= 0.2.0-rc.1 < 0.3.0`
 - Windows / macOS / Linux 桌面端
 - 明暗主题自动跟随
 - Client 半区是 TypeScript + JSX，**一条 `pnpm build` 编译**，**无运行期依赖**
+- 可选：dsh-context `0.82.x` – `0.83.x`——不装时页面行为与以前完全一致
 
 ## 常见问题
 
@@ -289,7 +311,7 @@ node docs/preview/serve.mjs   # 然后打开 http://127.0.0.1:4173/docs/preview/
 ### 0.13.0
 
 - **可选接入 [`dsh-context`](https://github.com/bowenliang123/dsh-context)**：装了它时，MCP 表多一列 **每轮 tokens**（最近一次请求里这台服务器的工具定义估算），工具栏多一个 **查看上下文明细** 按钮（跳到它的洞察页）；技能卡显示近 7 天被加载的次数。不装也完全不影响：页面和以前一模一样，也不会弹"请安装"。
-- **只读、单向**：页面通过宿主读它的 `contextHeaders` / `contextActivity` 投影，或调它的 `/api/dsh-context/*` 路由；不 import、不打补丁、不改它的配置。
+- **只读、单向**：页面通过宿主读它的 `contextHeaders` / `contextActivity` 投影；不 import、不打补丁、不改它的配置。
 - **失败要说实话**：没装、DSH 版本太旧、cookie 过期，一律落到"没有数据"——列消失、按钮不渲染，`—` 绝不冒充 0。
 
 ### 0.12.0
