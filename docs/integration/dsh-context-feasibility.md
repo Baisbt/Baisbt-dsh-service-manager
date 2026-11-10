@@ -462,7 +462,7 @@ const openContextInsights = () => {
 
 ### 10.2 实现要点（与 §4 的契约一一对应）
 
-- **宿主**：`index.js` 的 `readContextCost(ctx)` 读 `sessionProjections.snapshot`（活会话）/ `sessionProjectionCache.cachedSnapshot`（冷会话，最多试 8 条），取最新 `contextHeaders` 的 `tools[]`，按 `mcp__<server>__*` 聚合；路由 `POST /api/service-manager/context-cost` 返回 `ok: true` + `available: true/false`。
+- **宿主**：`index.js` 的 `readContextCost(ctx)` 读 `sessionProjections.snapshot`（活会话）/ `sessionProjectionCache.cachedSnapshot`（冷会话），取最新 `contextHeaders` 的 `tools[]`，按 `mcp__<server>__*` 聚合；路由 `POST /api/service-manager/context-cost` 返回 `ok: true` + `available: true/false`。`readContextUsage` 从 `contextActivity.days[*].skills` 折叠近 7 天。**冷会话扫描必须先 `await sessionQuery.listSessions()`，并且取头部前 N 条**（见 §10.5）。
 - **客户端**：页面**不再请求 dsh-context 的任何路由**；成本与技能用量都来自宿主的两条只读路由（`context-cost` / `context-usage`）。深链先问 `ctx.layout.hasMainPanel("dsh-context")`（和 `selectPanel` 内部是同一个注册表），旧版本退回 `ctx.slots.entries("main")`。
 - **为什么不用它的 HTTP**：它 0.82.1 的 `/snapshot` 会为**所有**会话折叠 `contextTimeline`，本机 121 条会话时又慢又重；`contextActivity` 只是一张按天小账本，宿主读它几乎零成本。
 - **不改契约**：`package.json` 没有新增依赖，`dsh.client.inject` 没动，也没有任何 `require("dsh-context")`。
@@ -473,8 +473,8 @@ const openContextInsights = () => {
 
 ```sh
 node scripts/build.mjs
-node test/render-smoke.mjs   # 新增 6 个用例：成本列有/无、深链有/无、技能频次有/无
-node test/host-smoke.mjs     # 57 项：含「没有 dsh-context 时 available:false」与假投影聚合 6 项
+node test/render-smoke.mjs   # 新增 8 个用例：成本列有/无、深链有/无、技能频次有/无、抽屉里的频次有/无
+node test/host-smoke.mjs     # 66 项：含「没有 dsh-context 时 available:false」与假投影聚合 9 项
 ```
 
 真机数据抽查（直接读本机投影缓存里的 `contextActivity`，与 `/snapshot` 返回同源）：近 7 天技能加载为 `impeccable 10`、`diagnose-windows-sandbox-acl 3`、`official-plugins 3`、`create-rule 1`——装了 dsh-context 的机器上，卡片上就会是这些数字。
@@ -493,6 +493,23 @@ node test/host-smoke.mjs     # 57 项：含「没有 dsh-context 时 available:f
 - 宿主路由**不返回 404**：没数据时返回 `ok: true, available: false`。404 的语义是"路由不存在"，而这里路由一直在，只是没数据。
 - **技能用量不走它的 HTTP**：0.82.1 的 `/snapshot` 给所有会话折叠时间线，会话一多就慢；改成宿主读 `contextActivity` 投影（0.13.1）。功能不变，页面少一个失败点。
 - 没有实现候选 4（安装前预估：核心无逐工具数据）与候选 5（改用它的技能接口：权威性转移）——理由见 §7。
+
+### 10.5 踩坑记录：`listSessions()` 是 async，而且最新在前（0.13.2 修）
+
+现场症状很难对号入座：**MCP 页的「每轮 tokens」列正常，技能卡上的使用频次一行都没有**。原因在宿主的 `collectProjectionValues`：
+
+| 坑 | 事实（DSH `app.asar` 源码） | 后果 |
+|---|---|---|
+| 同步取 Promise | `SessionQueryEngine.listSessions(signal)` 与 `SessionCorpus.listSessions` 都是 `async` | `const metas = query.listSessions()` 拿到 Promise，`Array.isArray(metas)` 恒假 → **冷会话那半段是死代码** |
+| 顺序 | `SessionCorpus.listSessions` 末尾 `return [...records.values()].sort(compareSessions)`，而 `compareSessions` 是 `b.createdAt - a.createdAt` = **最新在前** | 原来的 `slice(-coldLimit)` 取到最老的 N 条，最近几天被整体跳过 |
+
+为什么"只有成本列坏不掉"：活会话（当前打开的那条）本身就带 `contextHeaders`，成本列靠它就够了；而 `contextActivity` 里的技能记录分布在**历史会话**里，恰好在坏掉的那半段。
+
+修法与回归：
+
+- `collectProjectionValues` 改 async、`await listSessions()`、取 `slice(0, coldLimit)`；两条路由 `await readContextCost / readContextUsage`。
+- `test/host-smoke.mjs` 的假 `listSessions` 改成 `async`（照抄真服务形状），并新增两条用例：**「活会话没有技能记录时，仍从冷会话检查点聚合」**与**「70 条语料里只有最新那条有数据」**——这两条在旧实现下必然失败。
+- 兜底思路不变：仍旧只在有数据时渲染，没有数据时整行不存在（§6.3）。
 
 ---
 

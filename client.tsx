@@ -168,7 +168,7 @@ type PluginCtx = any;
      * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
      * 构建戳打在源码上，编译时原样落到 client.js。
      */
-    const BUILD = { version: "0.13.1", commit: "cb19826", built: "2026-11-09T13:36:11.568Z" };
+    const BUILD = { version: "0.13.2", commit: "429380e", built: "2026-11-10T01:50:21.557Z" };
 
     /* ---------------------------------------------------------------- 文案 */
 
@@ -932,6 +932,8 @@ type PluginCtx = any;
 .smDrawerTitleWrap{display:flex;flex-direction:column;gap:3px;min-width:0}
 .smDrawerTitle{margin:0;font-size:15px;font-weight:500;line-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smDrawerMeta{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 标题下的第二行（技能使用频次）：可选，没数据时整行不存在 */
+.smDrawerTitleNote{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
 /* 路径后面挂一个「在文件管理器中显示」的小按钮：路径本身可能很长，按钮不能被挤走 */
 .smDrawerMetaRow{display:flex;align-items:center;gap:6px;min-width:0}
 .smDrawerMetaRow .smDrawerMeta{flex:1 1 auto;min-width:0}
@@ -1075,6 +1077,19 @@ type PluginCtx = any;
       if (diff < 3_600_000) return t("whenMinutes").replace("{n}", String(Math.floor(diff / 60_000)));
       if (diff < 86_400_000) return t("whenHours").replace("{n}", String(Math.floor(diff / 3_600_000)));
       return t("whenDays").replace("{n}", String(Math.floor(diff / 86_400_000)));
+    };
+
+    /**
+     * 技能使用频次文案；没有记录时返回空串（调用方据此整行不渲染）。
+     * 卡片和抽屉用同一份，避免两处口径漂移。
+     */
+    const usageLabel = (t: Translate, usage?: SkillUsage): string => {
+      if (!usage) return "";
+      if (usage.n > 0) {
+        return t("skillUsed7").replace("{n}", String(usage.n)).replace("{when}", relativeWhen(t, usage.last));
+      }
+      if (usage.last > 0) return t("skillIdle7").replace("{when}", relativeWhen(t, usage.last));
+      return "";
     };
 
     /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
@@ -1278,6 +1293,7 @@ type PluginCtx = any;
       t,
       title,
       subtitle,
+      note,
       onClose,
       onLocate,
       children,
@@ -1285,6 +1301,8 @@ type PluginCtx = any;
       t: Translate;
       title: string;
       subtitle?: string;
+      /** 标题下的第二行说明（技能用它放使用频次），没有就整行不渲染 */
+      note?: ReactNode;
       onClose: () => void;
       onLocate?: () => void;
       children: ReactNode;
@@ -1330,6 +1348,7 @@ type PluginCtx = any;
                     ) : null}
                   </div>
                 ) : null}
+                {note ? <div className="smDrawerTitleNote">{note}</div> : null}
               </div>
               <button type="button" className="smIconBtn" onClick={close} aria-label={t("close")}>
                 <IconClose size={15} />
@@ -1390,6 +1409,7 @@ type PluginCtx = any;
       entry,
       busy,
       target,
+      usage,
       onRetranslate,
       onClose,
       onLocate,
@@ -1399,6 +1419,7 @@ type PluginCtx = any;
       entry?: TranslationEntry;
       busy?: boolean;
       target?: ModelRef | null;
+      usage?: SkillUsage;
       onRetranslate: () => void;
       onClose: () => void;
       onLocate: () => void;
@@ -1406,6 +1427,8 @@ type PluginCtx = any;
       const [body, setBody] = useState<string | null>(null);
       const [error, setError] = useState<string>("");
       const [loading, setLoading] = useState<boolean>(true);
+      /* 卡片上那行只有 11px、窄列时会被省略号吃掉，所以抽屉里再给一次 */
+      const usageText = usageLabel(t, usage);
 
       useEffect(() => {
         let alive = true;
@@ -1429,7 +1452,20 @@ type PluginCtx = any;
       }, [skill.path]);
 
       return (
-        <DrawerShell t={t} title={skill.name} subtitle={skill.path} onClose={onClose} onLocate={onLocate}>
+        <DrawerShell
+          t={t}
+          title={skill.name}
+          subtitle={skill.path}
+          note={
+            usageText ? (
+              <Tip label={t("skillUsageHint")}>
+                <span>{usageText}</span>
+              </Tip>
+            ) : undefined
+          }
+          onClose={onClose}
+          onLocate={onLocate}
+        >
           <SummarySection t={t} entry={entry} busy={busy} target={target} onRetranslate={onRetranslate}>
             {entry?.text || skill.description || "—"}
           </SummarySection>
@@ -2811,12 +2847,7 @@ type PluginCtx = any;
         const fallback = showingTranslation ? (entry?.text as string) : raw || "—";
         /* 使用次数只在「近 7 天有记录」时出现；没有记录（含没装 dsh-context）就整行不渲染 */
         const usage = state.context?.usage?.[skill.name];
-        const usageText =
-          usage && usage.n > 0
-            ? t("skillUsed7").replace("{n}", String(usage.n)).replace("{when}", relativeWhen(t, usage.last))
-            : usage && usage.last > 0
-              ? t("skillIdle7").replace("{when}", relativeWhen(t, usage.last))
-              : "";
+        const usageText = usageLabel(t, usage);
         return (
           <div
             key={skill.path ?? skill.name}
@@ -2949,6 +2980,7 @@ type PluginCtx = any;
               entry={entries[activeSkill.path]}
               busy={Boolean(pendingIds[activeSkill.path])}
               target={target}
+              usage={state.context?.usage?.[activeSkill.name]}
               onRetranslate={() => translate([activeSkill], { force: true })}
               onLocate={() => locateSkill(activeSkill)}
               onClose={() => setActiveSkill(null)}

@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
          * 版本号本身以 Host 读到的 package.json 为准，这里只提供 commit 供比对。
          * 构建戳打在源码上，编译时原样落到 client.js。
          */
-        const BUILD = { version: "0.13.1", commit: "cb19826", built: "2026-11-09T13:36:11.568Z" };
+        const BUILD = { version: "0.13.2", commit: "429380e", built: "2026-11-10T01:50:21.557Z" };
         /* ---------------------------------------------------------------- 文案 */
         const PRESETS = [
             {
@@ -705,6 +705,8 @@ window.__ModuleLoader__.load({
 .smDrawerTitleWrap{display:flex;flex-direction:column;gap:3px;min-width:0}
 .smDrawerTitle{margin:0;font-size:15px;font-weight:500;line-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smDrawerMeta{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 标题下的第二行（技能使用频次）：可选，没数据时整行不存在 */
+.smDrawerTitleNote{font-size:12px;line-height:18px;color:var(--dsw-alias-label-caption);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
 /* 路径后面挂一个「在文件管理器中显示」的小按钮：路径本身可能很长，按钮不能被挤走 */
 .smDrawerMetaRow{display:flex;align-items:center;gap:6px;min-width:0}
 .smDrawerMetaRow .smDrawerMeta{flex:1 1 auto;min-width:0}
@@ -847,6 +849,20 @@ window.__ModuleLoader__.load({
             if (diff < 86400000)
                 return t("whenHours").replace("{n}", String(Math.floor(diff / 3600000)));
             return t("whenDays").replace("{n}", String(Math.floor(diff / 86400000)));
+        };
+        /**
+         * 技能使用频次文案；没有记录时返回空串（调用方据此整行不渲染）。
+         * 卡片和抽屉用同一份，避免两处口径漂移。
+         */
+        const usageLabel = (t, usage) => {
+            if (!usage)
+                return "";
+            if (usage.n > 0) {
+                return t("skillUsed7").replace("{n}", String(usage.n)).replace("{when}", relativeWhen(t, usage.last));
+            }
+            if (usage.last > 0)
+                return t("skillIdle7").replace("{when}", relativeWhen(t, usage.last));
+            return "";
         };
         /* 只显示时分：横幅里的"启动于"要的是"大概什么时候"，不是精确时刻 */
         const shortClock = (iso) => {
@@ -1016,7 +1032,7 @@ window.__ModuleLoader__.load({
         const toolKeyOf = (server, tool) => `${server.id}:${tool.name}`;
         const paramKeyOf = (server, tool, param) => `${server.id}:${tool.name}#${param.name}`;
         /** 抽屉外壳：遮罩 + 右侧滑入 + Esc 关闭，技能和工具共用。 */
-        function DrawerShell({ t, title, subtitle, onClose, onLocate, children, }) {
+        function DrawerShell({ t, title, subtitle, note, onClose, onLocate, children, }) {
             const [open, setOpen] = useState(false);
             /* 用 ref 存回调：父组件重渲染会换掉 onClose 的函数身份，
                如果把它放进依赖里，effect 每次都被取消，进场动画就永远播不出来。 */
@@ -1049,7 +1065,8 @@ window.__ModuleLoader__.load({
                                     React.createElement("div", { className: "smDrawerMeta smMono" }, subtitle)),
                                 onLocate ? (React.createElement(Tip, { label: t("showInFiles") },
                                     React.createElement("button", { type: "button", className: "smIconBtn smIconBtnTiny", "aria-label": t("showInFiles"), onClick: onLocate },
-                                        React.createElement(IconFolder, { size: 13 })))) : null)) : null),
+                                        React.createElement(IconFolder, { size: 13 })))) : null)) : null,
+                            note ? React.createElement("div", { className: "smDrawerTitleNote" }, note) : null),
                         React.createElement("button", { type: "button", className: "smIconBtn", onClick: close, "aria-label": t("close") },
                             React.createElement(IconClose, { size: 15 }))),
                     React.createElement("div", { className: "smDrawerBody" }, children))));
@@ -1070,10 +1087,12 @@ window.__ModuleLoader__.load({
                 React.createElement("div", { className: "smSummaryDivider" }),
                 React.createElement("div", { className: "smSummaryLabel", style: { marginBottom: 10 } }, label)));
         }
-        function SkillDrawer({ skill, t, entry, busy, target, onRetranslate, onClose, onLocate, }) {
+        function SkillDrawer({ skill, t, entry, busy, target, usage, onRetranslate, onClose, onLocate, }) {
             const [body, setBody] = useState(null);
             const [error, setError] = useState("");
             const [loading, setLoading] = useState(true);
+            /* 卡片上那行只有 11px、窄列时会被省略号吃掉，所以抽屉里再给一次 */
+            const usageText = usageLabel(t, usage);
             useEffect(() => {
                 let alive = true;
                 (async () => {
@@ -1100,7 +1119,8 @@ window.__ModuleLoader__.load({
                     alive = false;
                 };
             }, [skill.path]);
-            return (React.createElement(DrawerShell, { t: t, title: skill.name, subtitle: skill.path, onClose: onClose, onLocate: onLocate },
+            return (React.createElement(DrawerShell, { t: t, title: skill.name, subtitle: skill.path, note: usageText ? (React.createElement(Tip, { label: t("skillUsageHint") },
+                    React.createElement("span", null, usageText))) : undefined, onClose: onClose, onLocate: onLocate },
                 React.createElement(SummarySection, { t: t, entry: entry, busy: busy, target: target, onRetranslate: onRetranslate }, entry?.text || skill.description || "—"),
                 React.createElement(SourceDivider, { label: t("sourceLabel") }),
                 loading ? (React.createElement("div", { className: "smSkeleton", style: { height: 120, borderRadius: 8 } })) : error ? (React.createElement("div", { className: "smBanner" },
@@ -2020,11 +2040,7 @@ window.__ModuleLoader__.load({
                 const fallback = showingTranslation ? entry?.text : raw || "—";
                 /* 使用次数只在「近 7 天有记录」时出现；没有记录（含没装 dsh-context）就整行不渲染 */
                 const usage = state.context?.usage?.[skill.name];
-                const usageText = usage && usage.n > 0
-                    ? t("skillUsed7").replace("{n}", String(usage.n)).replace("{when}", relativeWhen(t, usage.last))
-                    : usage && usage.last > 0
-                        ? t("skillIdle7").replace("{when}", relativeWhen(t, usage.last))
-                        : "";
+                const usageText = usageLabel(t, usage);
                 return (React.createElement("div", { key: skill.path ?? skill.name, className: "smCard", role: "button", tabIndex: 0, onClick: () => setActiveSkill(skill), onKeyDown: (event) => {
                         if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
@@ -2079,7 +2095,7 @@ window.__ModuleLoader__.load({
                         tally.retry.length ? (React.createElement("button", { type: "button", className: "smLinkBtn smNoticeAction", disabled: translateBusy, onClick: retryFailed }, t("translateRetry"))) : null)) : null),
                 filtered.length ? (React.createElement("div", { className: "smCards" }, filtered.map(card))) : (React.createElement("div", { className: "smEmpty", style: { padding: "40px 24px" } },
                     React.createElement("p", { className: "smEmptyBody" }, t("searchNoResult")))),
-                activeSkill ? (React.createElement(SkillDrawer, { skill: activeSkill, t: t, entry: entries[activeSkill.path], busy: Boolean(pendingIds[activeSkill.path]), target: target, onRetranslate: () => translate([activeSkill], { force: true }), onLocate: () => locateSkill(activeSkill), onClose: () => setActiveSkill(null) })) : null,
+                activeSkill ? (React.createElement(SkillDrawer, { skill: activeSkill, t: t, entry: entries[activeSkill.path], busy: Boolean(pendingIds[activeSkill.path]), target: target, usage: state.context?.usage?.[activeSkill.name], onRetranslate: () => translate([activeSkill], { force: true }), onLocate: () => locateSkill(activeSkill), onClose: () => setActiveSkill(null) })) : null,
                 pendingDelete ? (React.createElement(ConfirmDialog, { t: t, title: `${t("remove")} ${pendingDelete.name}`, body: t("removeSkillConfirm"), busy: busy, width: 460, onCancel: () => setPendingDelete(null), onConfirm: removeSkill })) : null));
         }
         function Page({ t, tab, setTab, state, reload, notify, }) {

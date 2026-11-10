@@ -366,6 +366,23 @@ const cases = [
     context: { probe: "absent" },
     rejectTexts: ["近 7 天", "最近"],
   },
+  /* 卡片上那行窄列会被省略号吃掉，所以抽屉标题下再给一次 */
+  {
+    label: "skill (抽屉里也显示使用频次)",
+    tab: "skill",
+    drawer: "banner-design",
+    context: { probe: "ok", usage: { "banner-design": { n: 3, last: Date.now() - 2 * 3600_000 } } },
+    expectTexts: ["近 7 天 3 次", "2 小时前"],
+    expectClass: "smDrawerTitleNote",
+  },
+  {
+    label: "skill (抽屉：没有记录时不长这一行)",
+    tab: "skill",
+    drawer: "banner-design",
+    context: { probe: "absent" },
+    rejectTexts: ["近 7 天", "最近"],
+    rejectClass: "smDrawerTitleNote",
+  },
 ];
 
 let failures = 0;
@@ -381,7 +398,9 @@ for (const item of cases) {
   forceTab = item.tab;
   entriesOverride = item.entries ?? null;
   entriesUsed = false;
-  activeSkillOverride = item.drawer ?? null;
+  /* 抽屉拿的是整个 skill 对象（页面按名字去查使用频次），所以这里也要按名字解析成对象 */
+  activeSkillOverride =
+    typeof item.drawer === "string" ? (skills.find((row) => row.name === item.drawer) ?? null) : (item.drawer ?? null);
   expandServerId = item.expand ?? null;
   openToolOverride = item.openTool ?? null;
   nullSeen = 0;

@@ -34,7 +34,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
  * 权威版本永远是 package.json 的 version。
  */
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
-const BUILD = { version: "0.13.1", commit: "cb19826", built: "2026-11-09T13:36:11.568Z" };
+const BUILD = { version: "0.13.2", commit: "429380e", built: "2026-11-10T01:50:21.557Z" };
 
 function readSelfVersion() {
   try {
@@ -237,8 +237,18 @@ const MCP_TOOL_NAME_RE = /^mcp__([A-Za-z0-9_-]{1,32})__(.+)$/;
  * 「活会话优先」：内存里的当前值；冷会话再退持久检查点（零 I/O）。
  * 全部走 DSH 官方投影服务，**不 import dsh-context、也不碰它的 HTTP 路由**。
  * 它没装（或 DSH 版本太旧）时对应的 key 不存在，收集结果为空数组。
+ *
+ * 两个坑（0.13.2 修）：
+ *  1. `sessionQuery.listSessions()` 是 **async** 的（SessionCorpus.listSessions）。
+ *     不 await 拿到的是一个 Promise，`Array.isArray` 恒假 —— 冷会话那半段会静默变成死代码，
+ *     于是「只有当前这条活会话算数」：mcp 成本列看着正常，技能用量却永远是空的。
+ *  2. 它返回的是**完整语料、最新在前**（compareSessions 按 header.createdAt 降序）。
+ *     要取的是头部前 coldLimit 条；slice(-N) 取到的是最老的 N 条，等于把最近几天的记录全跳过了。
+ *
+ * 取冷会话本身零 I/O（cachedSnapshot 直接读投影缓存的常驻表），贵的是上面那次 listSessions，
+ * 而它反正一次就把全量列出来，所以 coldLimit 只是给「逐条取视图」兜个上限。
  */
-function collectProjectionValues(ctx, key, { coldLimit = 60 } = {}) {
+async function collectProjectionValues(ctx, key, { coldLimit = 200 } = {}) {
   const projections = ctx?.get?.("sessionProjections") ?? null;
   const cache = ctx?.get?.("sessionProjectionCache") ?? null;
   const sessions = ctx?.get?.("sessions") ?? null;
@@ -263,9 +273,9 @@ function collectProjectionValues(ctx, key, { coldLimit = 60 } = {}) {
   }
 
   try {
-    const metas = query?.listSessions?.() ?? [];
-    const tail = Array.isArray(metas) ? metas.slice(-coldLimit) : [];
-    for (const meta of tail) {
+    const metas = await (query?.listSessions?.() ?? []);
+    const recent = Array.isArray(metas) ? metas.slice(0, coldLimit) : [];
+    for (const meta of recent) {
       try {
         /* cachedSnapshot 收的是「会话头」，不是 id，也不是列表项本身 */
         const header = meta?.header ?? meta;
@@ -277,7 +287,7 @@ function collectProjectionValues(ctx, key, { coldLimit = 60 } = {}) {
       }
     }
   } catch {
-    /* 没有 sessionQuery 服务 */
+    /* 没有 sessionQuery 服务，或者 listSessions 抛错 */
   }
 
   return values;
@@ -291,8 +301,8 @@ function collectProjectionValues(ctx, key, { coldLimit = 60 } = {}) {
  * tools[].name 与 readToolIndex 用的是同一套 `mcp__<server>__<tool>` 命名，所以 join 是免费的。
  * 没数据时返回 `{ available: false }`：页面据此不渲染这一列，而不是报错。
  */
-function readContextCost(ctx) {
-  for (const value of collectProjectionValues(ctx, "contextHeaders", { coldLimit: 8 })) {
+async function readContextCost(ctx) {
+  for (const value of await collectProjectionValues(ctx, "contextHeaders", { coldLimit: 40 })) {
     const headers = value?.headers;
     if (!Array.isArray(headers) || headers.length === 0) continue;
     const header = headers[headers.length - 1] ?? null;
@@ -339,12 +349,12 @@ function readContextCost(ctx) {
  * 那条路由会为**所有**会话折叠 contextTimeline，本机 100+ 会话时又慢又重；
  * 而 contextActivity 只是一张很小的按天账本。
  */
-function readContextUsage(ctx, days = 7) {
+async function readContextUsage(ctx, days = 7) {
   const since = Date.now() - days * 24 * 3600 * 1000;
   const totals = new Map();
   let sessions = 0;
 
-  for (const value of collectProjectionValues(ctx, "contextActivity")) {
+  for (const value of await collectProjectionValues(ctx, "contextActivity")) {
     const map = value?.days;
     if (!map || typeof map !== "object") continue;
     sessions += 1;
@@ -1856,7 +1866,7 @@ export function apply(ctx, config) {
     requestBody: "buffered",
     fetch: async () => {
       try {
-        return json({ ok: true, ...readContextCost(ctx) });
+        return json({ ok: true, ...(await readContextCost(ctx)) });
       } catch (error) {
         return json({ ok: true, available: false, reason: String(error?.message ?? error) });
       }
@@ -1874,7 +1884,7 @@ export function apply(ctx, config) {
     requestBody: "buffered",
     fetch: async () => {
       try {
-        return json({ ok: true, ...readContextUsage(ctx) });
+        return json({ ok: true, ...(await readContextUsage(ctx)) });
       } catch (error) {
         return json({ ok: true, available: false, reason: String(error?.message ?? error) });
       }

@@ -304,6 +304,12 @@ That preview environment is also the fastest way to iterate on the UI without in
 
 ## Changelog
 
+### 0.13.2
+
+- **Skill usage actually shows up now.** `sessionQuery.listSessions()` is asynchronous; the projection reader treated its promise as an array, so the cold-session half was silently dead — only the session you had open counted. The MCP token column looked fine (a live session does carry request headers) while skill usage stayed empty. It is awaited now.
+- **The cold scan reads from the newest sessions.** That listing returns the whole corpus newest-first, so the old `slice(-N)` was looking at the oldest N sessions and skipping the recent ones.
+- **Usage is shown in the skill drawer too**, under the title, since the line on a narrow card is truncated.
+
 ### 0.13.1
 
 - **Skill usage is aggregated on the Host now.** The page no longer calls dsh-context's `/snapshot` — that route folds every session's timeline, which gets slow with a long session list. The Host reads the small per-day `contextActivity` projection instead.

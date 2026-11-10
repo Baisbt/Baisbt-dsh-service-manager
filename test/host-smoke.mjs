@@ -374,7 +374,8 @@ async function boot(dir, profile, options = {}) {
   const { call } = await boot(ROOT, profile, {
     get: (name) => {
       if (name === "sessions") return { list: () => [] };
-      if (name === "sessionQuery") return { listSessions: () => [{ header: { id: "s9", createdAt: 1 } }] };
+      /* 真的 sessionQuery.listSessions 是 async 的（都会返回 Promise），这里必须照抄 */
+      if (name === "sessionQuery") return { listSessions: async () => [{ header: { id: "s9", createdAt: 1 } }] };
       if (name === "sessionProjectionCache") {
         return {
           cachedSnapshot: (header) => {
@@ -388,8 +389,31 @@ async function boot(dir, profile, options = {}) {
     },
   });
   const cost = await call("/api/service-manager/context-cost", { method: "POST", body: "{}" });
-  check("/context-cost 冷会话走缓存", cost.available === true, JSON.stringify(cost));
+  check("/context-cost 冷会话走缓存（listSessions 是 async）", cost.available === true, JSON.stringify(cost));
   check("/context-cost 缓存读到的是会话头（带 id）", seenHeader?.id === "s9", JSON.stringify(seenHeader));
+}
+
+/* listSessions 返回「完整语料、最新在前」：要取头部，不能取尾部 */
+{
+  const profile = await temp("sm-profile-");
+  const tools = [{ name: "mcp__tavily__tavily_search", tokens: 1209 }];
+  const metas = Array.from({ length: 70 }, (_, i) => ({ header: { id: `s${i}`, createdAt: 1e6 - i } }));
+  const { call } = await boot(ROOT, profile, {
+    get: (name) => {
+      if (name === "sessions") return { list: () => [] };
+      if (name === "sessionQuery") return { listSessions: async () => metas };
+      if (name === "sessionProjectionCache") {
+        return {
+          cachedSnapshot: (header) =>
+            header.id === "s0" ? { values: { contextHeaders: { headers: [{ seq: 9, time: 1, tools }] } } } : undefined,
+        };
+      }
+      if (name === "sessionProjections") return { snapshot: () => undefined };
+      return null;
+    },
+  });
+  const cost = await call("/api/service-manager/context-cost", { method: "POST", body: "{}" });
+  check("冷会话取样取的是最新的那批（不是最老的）", cost.headerSeq === 9, JSON.stringify(cost));
 }
 
 /* 技能使用频次：同样来自 dsh-context 的投影（contextActivity），宿主侧聚合 */
@@ -435,6 +459,39 @@ async function boot(dir, profile, options = {}) {
     JSON.stringify(usage.skills)
   );
   check("/context-usage 带出最近时间", (usage.skills?.find((row) => row.name === "banner-design")?.last ?? 0) > 0);
+}
+
+/* 现场就是这一种：当前会话没有技能记录，历史记在冷会话的检查点里（0.13.2 前的 bug 正在这里） */
+{
+  const profile = await temp("sm-profile-");
+  const today = new Date().toISOString().slice(0, 10);
+  const live = { id: "live" };
+  const { call } = await boot(ROOT, profile, {
+    get: (name) => {
+      if (name === "sessions") return { list: () => [live] };
+      if (name === "sessionProjections") return { snapshot: () => ({ values: {} }) };
+      if (name === "sessionQuery") return { listSessions: async () => [{ header: { id: "cold1", createdAt: 5 } }] };
+      if (name === "sessionProjectionCache") {
+        return {
+          cachedSnapshot: () => ({
+            values: {
+              contextActivity: {
+                days: { [today]: { skills: { impeccable: { n: 10, last: Date.now() - 86400_000 } } } },
+              },
+            },
+          }),
+        };
+      }
+      return null;
+    },
+  });
+  const usage = await call("/api/service-manager/context-usage", { method: "POST", body: "{}" });
+  check("活会话没有技能记录时，仍从冷会话检查点聚合", usage.available === true, JSON.stringify(usage));
+  check(
+    "/context-usage 冷会话聚合出次数",
+    usage.skills?.find((row) => row.name === "impeccable")?.n === 10,
+    JSON.stringify(usage.skills)
+  );
 }
 
 for (const dir of cleanup) await rm(dir, { recursive: true, force: true });
